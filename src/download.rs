@@ -15,20 +15,31 @@ enum BencodeType {
 }
 
 fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<BencodeType> {
-    let mut string_len_string: String = String::new();
+    let mut buffer: String = String::new();
     let mut index: usize = 0;
 
+    // if index is out of range for data at any point, error will be thrown which is expected
     let mut data_char: char = data[index] as char;
     if data_char.is_ascii_digit() {
         while data_char != ':' {
-            string_len_string.push(data_char);
+            buffer.push(data_char);
             index += 1;
             data_char = data[index] as char;
         }
         return Ok(BencodeType::Bstring(String::from_utf8(
-            data[index + 1..index + 1 + string_len_string.parse::<usize>()?].to_vec(),
+            data[index + 1..index + 1 + buffer.parse::<usize>()?].to_vec(),
         )?));
+    } else if data_char == 'i' {
+        index += 1;
+        data_char = data[index] as char;
+        while data_char != 'e' {
+            buffer.push(data_char);
+            index += 1;
+            data_char = data[index] as char;
+        }
+        return Ok(BencodeType::Bint(buffer.parse::<u64>()?));
     }
+    println!("Could not parse the bencoded data properly!");
     bail!("Could not parse the bencoded data properly!")
 }
 
@@ -83,6 +94,12 @@ mod download_test {
             recursive_bencode_decoder(str_vec).unwrap(),
             BencodeType::Bstring(String::from("Test String"))
         );
+
+        let int_vec: &Vec<u8> = &String::from("i982e").into_bytes();
+        assert_eq!(
+            recursive_bencode_decoder(int_vec).unwrap(),
+            BencodeType::Bint(982)
+        );
     }
 
     #[should_panic]
@@ -92,6 +109,26 @@ mod download_test {
         assert_eq!(
             recursive_bencode_decoder(str_vec).unwrap(),
             BencodeType::Bstring(String::from("Test String"))
+        );
+    }
+
+    #[should_panic]
+    #[test]
+    fn check_recursive_bencode_decoder_int_no_end_fails() {
+        let int_vec: &Vec<u8> = &String::from("i32").into_bytes();
+        assert_eq!(
+            recursive_bencode_decoder(int_vec).unwrap(),
+            BencodeType::Bstring(String::from("Should Panic"))
+        );
+    }
+
+    #[should_panic]
+    #[test]
+    fn check_recursive_bencode_decoder_deformed_fails() {
+        let data_vec: &Vec<u8> = &String::from("qi23e").into_bytes();
+        assert_eq!(
+            recursive_bencode_decoder(data_vec).unwrap(),
+            BencodeType::Bstring(String::from("Should Panic"))
         );
     }
 }
