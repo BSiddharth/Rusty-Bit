@@ -12,7 +12,9 @@ target/
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+
 # Ignore torrent files
-*.torrent
+torrent sample/
+
 # End of https://www.toptal.com/developers/gitignore/api/rust
 
