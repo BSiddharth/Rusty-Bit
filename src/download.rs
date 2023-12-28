@@ -1,7 +1,9 @@
 use crate::helper::read_string;
 use anyhow::bail;
 use std::{
-    char, fs,
+    char,
+    collections::BTreeMap,
+    fs,
     io::{self, ErrorKind, Write},
     usize,
 };
@@ -9,11 +11,10 @@ use std::{
 #[derive(PartialEq, Debug)]
 enum BencodeType {
     Bstring(String),
-    Bvec(Vec<String>),
-    Bmap(Box<BencodeType>),
+    Bvec(Vec<BencodeType>),
+    Bmap(BTreeMap<Box<BencodeType>, Box<BencodeType>>),
     Bint(u64),
 }
-
 fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<BencodeType> {
     let mut buffer: String = String::new();
     let mut index: usize = 0;
