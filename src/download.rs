@@ -142,6 +142,10 @@ fn decode_bencoded_file(file_path: String) -> anyhow::Result<BencodeType> {
             let decoder_result = recursive_bencode_decoder(&file_data_vec);
             match decoder_result {
                 Ok((decoded_result, _)) => {
+                    match decoded_result {
+                        BencodeType::Bmap(_) => {}
+                        _ => bail!("Bencoded file format wrong"),
+                    }
                     println!("File decoded succesfully!");
                     Ok(decoded_result)
                 }
@@ -176,7 +180,7 @@ pub fn download_using_file() -> anyhow::Result<()> {
     // Console output is handled by the decode_bencoded_file function so no need to take any action
     // in case of faiure
 
-    println!("Starting download now");
+    println!("Starting download now, trying to contact {}");
     Ok(())
 }
 
