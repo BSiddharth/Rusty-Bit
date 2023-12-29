@@ -22,22 +22,25 @@ fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usi
 
     // if index is out of range for data at any point, error will be thrown which is expected
     let mut data_char: char = data[index] as char;
-    println!("Char is {data_char}");
     if data_char.is_ascii_digit() {
-        println!("Entering digit mode");
-        let mut len_string: String = String::new();
+        println!("Entering string mode");
+        let mut string_len_in_string_format: String = String::new();
         while data_char != ':' {
-            len_string.push(data_char);
+            string_len_in_string_format.push(data_char);
             index += 1;
             data_char = data[index] as char;
         }
-
+        let string_len = string_len_in_string_format.parse::<usize>()?;
+        let str_start_index = index + 1;
+        let str_end_index = index + 1 + string_len;
         let result_string =
-            String::from_utf8(data[index + 1..index + 1 + len_string.parse::<usize>()?].to_vec())?;
-        let consumed = result_string.len() + len_string.len() + 1; // +1 for ':'
+            String::from_utf8_lossy(&data[str_start_index..str_end_index].to_vec()).to_string();
+        let consumed = string_len + string_len_in_string_format.len() + 1; // +1 for ':'
         println!("returning {result_string}, {consumed}");
         return Ok((BencodeType::Bstring(result_string), consumed));
     } else if data_char == 'i' {
+        println!("Entering integer mode");
+        let start_index = index;
         index += 1;
         data_char = data[index] as char;
         let mut buffer: String = String::new();
@@ -48,18 +51,16 @@ fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usi
         }
 
         let result_int = BencodeType::Bint(buffer.parse::<u64>()?);
-        let consumed = buffer.len() + 2; // +2 for 'i' and 'e'
-
+        let consumed = index - start_index + 1;
         return Ok((result_int, consumed));
     } else if data_char == 'l' {
-        println!("Entering l mode");
+        println!("Entering vec mode");
         let mut ben_vec: Vec<BencodeType> = Vec::new();
-        let mut consumed = 0;
+        let start_index = 0;
         while data[index] as char != 'e' {
             let data_to_send_start_index: usize = if ben_vec.len() == 0 { 1 } else { 0 };
             let (list_element, len_consumed) =
                 recursive_bencode_decoder(&data[index + data_to_send_start_index..].to_vec())?;
-            consumed += len_consumed;
             index += if ben_vec.len() == 0 {
                 len_consumed + 1
             } else {
@@ -69,15 +70,15 @@ fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usi
         }
 
         println!("{ben_vec:?}");
-
-        consumed += 2; // +2 for 'l' and 'e'
+        let consumed = index - start_index + 1;
         let result_vec = BencodeType::Bvec(ben_vec);
 
         return Ok((result_vec, consumed));
     } else if data_char == 'd' {
-        println!("Entering d mode");
+        println!("Entering map mode");
         let mut ben_map: BTreeMap<Box<BencodeType>, Box<BencodeType>> = BTreeMap::new();
         let mut send_data_from_next_index = true;
+        let start_index = index;
         while data[index] as char != 'e' {
             let (key, new_index) = extract_btype(&data, index, send_data_from_next_index)?;
             println!("key and new_index are {key:?} {new_index}");
@@ -90,7 +91,7 @@ fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usi
             ben_map.insert(Box::new(key), Box::new(value));
         }
 
-        let consumed = ben_map.len() + 2; // +2 for 'i' and 'e'
+        let consumed = index - start_index + 1;
         let result_vec = BencodeType::Bmap(ben_map);
 
         return Ok((result_vec, consumed));
@@ -123,8 +124,18 @@ fn decode_bencoded_file(file_path: String) -> anyhow::Result<BencodeType> {
     match file_data {
         Ok(file_data_vec) => {
             println!("Decoding bencoded file {file_path}");
-            print!("{}", String::from_utf8_lossy(&file_data_vec));
-            Ok(BencodeType::Bint(0))
+            // print!("{}", String::from_utf8_lossy(&file_data_vec));
+            let decoder_result = recursive_bencode_decoder(&file_data_vec);
+            match decoder_result {
+                Ok((decoded_result, _)) => {
+                    println!("File decoded succesfully!");
+                    Ok(decoded_result)
+                }
+                Err(_) => {
+                    println!("File could not be decoded!");
+                    bail!("File could not be decoded!");
+                }
+            }
         }
         Err(e) => {
             if e.kind() == ErrorKind::NotFound {
@@ -141,7 +152,9 @@ pub fn download_using_file() -> anyhow::Result<()> {
     print!("You chose to download using .torrent file, provide the file path: ");
     io::stdout().flush().expect("Couldn't flush stdout");
     let file_path = read_string();
-    decode_bencoded_file(file_path)?;
+    let decoded_file_data = decode_bencoded_file(file_path)?;
+    println!("Starting download now");
+    println!("{decoded_file_data:?}");
     Ok(())
 }
 
