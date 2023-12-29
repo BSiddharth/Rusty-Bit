@@ -8,42 +8,47 @@ use std::{
     usize,
 };
 
-#[allow(dead_code)]
 #[derive(PartialEq, Debug, PartialOrd, Ord, Eq)]
 enum BencodeType {
     Bstring(String),
     Bvec(Vec<BencodeType>),
-    Bmap(BTreeMap<Box<BencodeType>, Box<BencodeType>>),
+    Bmap(BTreeMap<Box<BencodeType>, Box<BencodeType>>), // needs to be BTreeMap instead of HashMap
+    // because HashMap cannot be hashed consistently as it has no fixed order unlike BTreeMap.
     Bint(u64),
 }
-#[allow(dead_code)]
+
+/*
+ * This function calls itsellf recursively until the Vec<u8> containing bencoded bytes is resolved
+ * (or throws error)
+*/
 fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usize)> {
     let mut index: usize = 0;
 
     // if index is out of range for data at any point, error will be thrown which is expected
     let mut data_char: char = data[index] as char;
     if data_char.is_ascii_digit() {
-        println!("Entering string mode");
         let mut string_len_in_string_format: String = String::new();
+
         while data_char != ':' {
             string_len_in_string_format.push(data_char);
             index += 1;
             data_char = data[index] as char;
         }
+
         let string_len = string_len_in_string_format.parse::<usize>()?;
         let str_start_index = index + 1;
         let str_end_index = index + 1 + string_len;
         let result_string =
             String::from_utf8_lossy(&data[str_start_index..str_end_index].to_vec()).to_string();
         let consumed = string_len + string_len_in_string_format.len() + 1; // +1 for ':'
-        println!("returning {result_string}, {consumed}");
+
         return Ok((BencodeType::Bstring(result_string), consumed));
     } else if data_char == 'i' {
-        println!("Entering integer mode");
         let start_index = index;
         index += 1;
         data_char = data[index] as char;
         let mut buffer: String = String::new();
+
         while data_char != 'e' {
             buffer.push(data_char);
             index += 1;
@@ -52,15 +57,21 @@ fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usi
 
         let result_int = BencodeType::Bint(buffer.parse::<u64>()?);
         let consumed = index - start_index + 1;
+
         return Ok((result_int, consumed));
     } else if data_char == 'l' {
-        println!("Entering vec mode");
         let mut ben_vec: Vec<BencodeType> = Vec::new();
         let start_index = 0;
+
         while data[index] as char != 'e' {
-            let data_to_send_start_index: usize = if ben_vec.len() == 0 { 1 } else { 0 };
-            let (list_element, len_consumed) =
-                recursive_bencode_decoder(&data[index + data_to_send_start_index..].to_vec())?;
+            let data_to_parse_start_index_offset: usize = if ben_vec.len() == 0 { 1 } else { 0 };
+            // when ben_vec is empty it means we are on 'l' and need to send data from the next index,
+            // but if it is not empty then it means we do not need to skip ahead 1 index as the
+            // vec elements are concatinated without any delimiter.
+
+            let (list_element, len_consumed) = recursive_bencode_decoder(
+                &data[index + data_to_parse_start_index_offset..].to_vec(),
+            )?;
             index += if ben_vec.len() == 0 {
                 len_consumed + 1
             } else {
@@ -69,25 +80,23 @@ fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usi
             ben_vec.push(list_element);
         }
 
-        println!("{ben_vec:?}");
         let consumed = index - start_index + 1;
         let result_vec = BencodeType::Bvec(ben_vec);
 
         return Ok((result_vec, consumed));
     } else if data_char == 'd' {
-        println!("Entering map mode");
         let mut ben_map: BTreeMap<Box<BencodeType>, Box<BencodeType>> = BTreeMap::new();
         let mut send_data_from_next_index = true;
         let start_index = index;
+
         while data[index] as char != 'e' {
             let (key, new_index) = extract_btype(&data, index, send_data_from_next_index)?;
-            println!("key and new_index are {key:?} {new_index}");
             index = new_index;
             send_data_from_next_index = false;
+
             let (value, new_index) = extract_btype(&data, index, send_data_from_next_index)?;
-            println!("value and new_index are {value:?} {new_index}");
             index = new_index;
-            println!("index in d after is {index}");
+
             ben_map.insert(Box::new(key), Box::new(value));
         }
 
@@ -101,6 +110,9 @@ fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usi
     bail!("Could not parse the bencoded data properly!")
 }
 
+/*
+ * Helper for the dictionary part of recursive_bencode_decoder
+*/
 fn extract_btype(
     data: &[u8],
     index: usize,
@@ -118,13 +130,15 @@ fn extract_btype(
     Ok((data, return_index))
 }
 
+/*
+ * This function is responsible for converting the data in bencoded file into rust datatype.
+*/
 fn decode_bencoded_file(file_path: String) -> anyhow::Result<BencodeType> {
     println!("Trying to read file {file_path}");
     let file_data = fs::read(&file_path);
     match file_data {
         Ok(file_data_vec) => {
             println!("Decoding bencoded file {file_path}");
-            // print!("{}", String::from_utf8_lossy(&file_data_vec));
             let decoder_result = recursive_bencode_decoder(&file_data_vec);
             match decoder_result {
                 Ok((decoded_result, _)) => {
@@ -148,13 +162,21 @@ fn decode_bencoded_file(file_path: String) -> anyhow::Result<BencodeType> {
     }
 }
 
+/*
+ * This function downloads torrent resource using the .torrent file
+*/
 pub fn download_using_file() -> anyhow::Result<()> {
     print!("You chose to download using .torrent file, provide the file path: ");
     io::stdout().flush().expect("Couldn't flush stdout");
+
     let file_path = read_string();
+    println!();
+
     let decoded_file_data = decode_bencoded_file(file_path)?;
+    // Console output is handled by the decode_bencoded_file function so no need to take any action
+    // in case of faiure
+
     println!("Starting download now");
-    println!("{decoded_file_data:?}");
     Ok(())
 }
 
