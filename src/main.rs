@@ -16,7 +16,12 @@ ______          _          ______ _ _
     );
 
     loop {
-        println!("\nWhat would you like to do:\n    1) Download using .torrent file\n    2) Download using magnet link\n    3) Quit Rusty-Bit\n");
+        println!(
+            "\nWhat would you like to do:\n\
+        1) Download using .torrent file\n\
+        2) Download using magnet link\n\
+        3) Quit Rusty-Bit\n"
+        );
         print!("Choose your preferred download method or quit the program: ");
         io::stdout().flush().expect("Couldn't flush stdout");
         let chosen_option = helper::read_string();
@@ -35,7 +40,7 @@ ______          _          ______ _ _
                 println!("See you later");
                 break;
             }
-            _ => println!("Option should be a number from the table given above!! Try again\n"),
+            _ => println!("Option should be a number from the table given above!! Try again.\n"),
         }
     }
 }
