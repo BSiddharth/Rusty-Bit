@@ -1,21 +1,43 @@
 use crate::helper::read_string;
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use std::{
-    char,
     collections::BTreeMap,
     fs,
     io::{self, ErrorKind, Write},
-    usize,
 };
 
 #[derive(PartialEq, Debug, PartialOrd, Ord, Eq)]
 enum BencodeType {
     Bstring(String),
     Bvec(Vec<BencodeType>),
-    Bmap(BTreeMap<Box<BencodeType>, Box<BencodeType>>), // needs to be BTreeMap instead of HashMap
+    Bmap(BTreeMap<Box<BencodeType>, BencodeType>), // needs to be BTreeMap instead of HashMap
     // because HashMap cannot be hashed consistently as it has no fixed order unlike BTreeMap.
     Bint(u64),
 }
+//
+// #[allow(dead_code)]
+// enum MapVal {
+//     Mstr(String),
+//     Mvec(Vec<>),
+//     Mmap(HashMap<String, MapVal>),
+//     Mint(u64),
+// }
+//
+// #[allow(dead_code)]
+// impl BencodeType {
+//     fn convert(self) -> MapVal {
+//         match self {
+//             BencodeType::Bmap(map) => {
+//                 let result: HashMap<String, MapVal> = HashMap::new();
+//                 for keys in map.keys() {}
+//                 MapVal::Mmap(result)
+//             }
+//             BencodeType::Bstring(s) => MapVal::Mstr(s),
+//             BencodeType::Bvec(_) => todo!(),
+//             BencodeType::Bint(_) => todo!(),
+//         }
+//     }
+// }
 
 /*
  * This function calls itsellf recursively until the Vec<u8> containing bencoded bytes is resolved
@@ -85,7 +107,7 @@ fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usi
 
         return Ok((result_vec, consumed));
     } else if data_char == 'd' {
-        let mut ben_map: BTreeMap<Box<BencodeType>, Box<BencodeType>> = BTreeMap::new();
+        let mut ben_map: BTreeMap<Box<BencodeType>, BencodeType> = BTreeMap::new();
         let mut send_data_from_next_index = true;
         let start_index = index;
 
@@ -97,7 +119,7 @@ fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usi
             let (value, new_index) = extract_btype(&data, index, send_data_from_next_index)?;
             index = new_index;
 
-            ben_map.insert(Box::new(key), Box::new(value));
+            ben_map.insert(Box::new(key), value);
         }
 
         let consumed = index - start_index + 1;
@@ -142,16 +164,12 @@ fn decode_bencoded_file(file_path: String) -> anyhow::Result<BencodeType> {
             let decoder_result = recursive_bencode_decoder(&file_data_vec);
             match decoder_result {
                 Ok((decoded_result, _)) => {
-                    match decoded_result {
-                        BencodeType::Bmap(_) => {}
-                        _ => bail!("Bencoded file format wrong"),
-                    }
                     println!("File decoded succesfully!");
                     Ok(decoded_result)
                 }
                 Err(_) => {
                     println!("File could not be decoded!");
-                    bail!("File could not be decoded!");
+                    bail!("File could not be decoded!")
                 }
             }
         }
@@ -175,12 +193,19 @@ pub fn download_using_file() -> anyhow::Result<()> {
 
     let file_path = read_string();
     println!();
-
     let decoded_file_data = decode_bencoded_file(file_path)?;
     // Console output is handled by the decode_bencoded_file function so no need to take any action
-    // in case of faiure
+    // in case of faiure.
 
-    println!("Starting download now, trying to contact {}");
+    match decoded_file_data {
+        BencodeType::Bmap(map) => {
+            let announce = map
+                .get(&BencodeType::Bstring(String::from("announce")))
+                .ok_or(anyhow!("announce does not exist in the map"))?;
+            println!("Starting download now, trying to contact {:?}", announce);
+        }
+        _ => bail!("Bencoded file format wrong -> not a map"),
+    }
     Ok(())
 }
 
@@ -228,10 +253,10 @@ mod download_test {
         let map_vec: &Vec<u8> = &String::from("d4:spaml1:a1:bee").into_bytes();
         let btmap = BTreeMap::from([(
             Box::new(BencodeType::Bstring(String::from("spam"))),
-            Box::new(BencodeType::Bvec(vec![
+            BencodeType::Bvec(vec![
                 BencodeType::Bstring(String::from("a")),
                 BencodeType::Bstring(String::from("b")),
-            ])),
+            ]),
         )]);
         assert_eq!(
             recursive_bencode_decoder(map_vec).unwrap().0,
