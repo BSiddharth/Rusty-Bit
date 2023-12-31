@@ -1,5 +1,5 @@
 use crate::helper::read_string;
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use std::{
     collections::BTreeMap,
     fs,
@@ -13,31 +13,17 @@ enum BencodeType {
     Bmap(BTreeMap<Box<BencodeType>, BencodeType>), // needs to be BTreeMap instead of HashMap
     // because HashMap cannot be hashed consistently as it has no fixed order unlike BTreeMap.
     Bint(u64),
+    Null,
 }
-//
-// #[allow(dead_code)]
-// enum MapVal {
-//     Mstr(String),
-//     Mvec(Vec<>),
-//     Mmap(HashMap<String, MapVal>),
-//     Mint(u64),
-// }
-//
-// #[allow(dead_code)]
-// impl BencodeType {
-//     fn convert(self) -> MapVal {
-//         match self {
-//             BencodeType::Bmap(map) => {
-//                 let result: HashMap<String, MapVal> = HashMap::new();
-//                 for keys in map.keys() {}
-//                 MapVal::Mmap(result)
-//             }
-//             BencodeType::Bstring(s) => MapVal::Mstr(s),
-//             BencodeType::Bvec(_) => todo!(),
-//             BencodeType::Bint(_) => todo!(),
-//         }
-//     }
-// }
+
+impl BencodeType {
+    fn find_val_for_key(&self, key: &BencodeType) -> &BencodeType {
+        match self {
+            BencodeType::Bmap(map) => map.get(key).unwrap_or(&BencodeType::Null),
+            _ => &BencodeType::Null,
+        }
+    }
+}
 
 /*
  * This function calls itsellf recursively until the Vec<u8> containing bencoded bytes is resolved
@@ -163,10 +149,16 @@ fn decode_bencoded_file(file_path: String) -> anyhow::Result<BencodeType> {
             println!("Decoding bencoded file {file_path}");
             let decoder_result = recursive_bencode_decoder(&file_data_vec);
             match decoder_result {
-                Ok((decoded_result, _)) => {
-                    println!("File decoded succesfully!");
-                    Ok(decoded_result)
-                }
+                Ok((decoded_result, _)) => match decoded_result {
+                    BencodeType::Bmap(_) => {
+                        println!("File decoded succesfully!");
+                        Ok(decoded_result)
+                    }
+                    _ => {
+                        println!("File decoded but unexpected format..aborting!!");
+                        bail!("File decoded but unexpected format..aborting!!")
+                    }
+                },
                 Err(_) => {
                     println!("File could not be decoded!");
                     bail!("File could not be decoded!")
@@ -194,17 +186,15 @@ pub fn download_using_file() -> anyhow::Result<()> {
     let file_path = read_string();
     println!();
     let decoded_file_data = decode_bencoded_file(file_path)?;
+
     // Console output is handled by the decode_bencoded_file function so no need to take any action
     // in case of faiure.
-
-    match decoded_file_data {
-        BencodeType::Bmap(map) => {
-            let announce = map
-                .get(&BencodeType::Bstring(String::from("announce")))
-                .ok_or(anyhow!("announce does not exist in the map"))?;
-            println!("Starting download now, trying to contact {:?}", announce);
-        }
-        _ => bail!("Bencoded file format wrong -> not a map"),
+    let announce =
+        decoded_file_data.find_val_for_key(&BencodeType::Bstring(String::from("announce")));
+    if let BencodeType::Bstring(announce_str) = announce {
+        println!("Starting download now, trying to contact {}", announce_str);
+    } else {
+        bail!("Could not find announce");
     }
     Ok(())
 }
