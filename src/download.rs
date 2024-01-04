@@ -17,9 +17,11 @@ enum BencodeType {
 }
 
 impl BencodeType {
-    fn find_val_for_key(&self, key: &BencodeType) -> &BencodeType {
+    fn find_val_for_key(&self, key: &str) -> &BencodeType {
         match self {
-            BencodeType::Bmap(map) => map.get(key).unwrap_or(&BencodeType::Null),
+            BencodeType::Bmap(map) => map
+                .get(&BencodeType::Bstring(String::from(key)))
+                .unwrap_or(&BencodeType::Null),
             _ => &BencodeType::Null,
         }
     }
@@ -189,8 +191,7 @@ pub fn download_using_file() -> anyhow::Result<()> {
 
     // Console output is handled by the decode_bencoded_file function so no need to take any action
     // in case of faiure.
-    let announce =
-        decoded_file_data.find_val_for_key(&BencodeType::Bstring(String::from("announce")));
+    let announce = decoded_file_data.find_val_for_key("announce");
     if let BencodeType::Bstring(announce_str) = announce {
         println!("Starting download now, trying to contact {}", announce_str);
     } else {
