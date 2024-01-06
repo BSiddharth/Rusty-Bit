@@ -15,6 +15,7 @@ ______          _          ______ _ _
 "
     );
 
+    // TODO : Use clap for command line parsing
     loop {
         println!(
             "\nWhat would you like to do:\n\
