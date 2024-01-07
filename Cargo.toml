@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.76"
+serde = { version = "1.0.195", features = ["derive"] }
+bendy = { version = "^0.3.3", features = ["std", "serde"] }

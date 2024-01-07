@@ -1,166 +1,26 @@
 use crate::helper::read_string;
 use anyhow::bail;
+use serde::{
+    de::{self, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
 use std::{
-    collections::BTreeMap,
-    fs,
+    fmt, fs,
     io::{self, ErrorKind, Write},
 };
-
-#[derive(PartialEq, Debug, PartialOrd, Ord, Eq)]
-enum BencodeType {
-    Bstring(String),
-    Bvec(Vec<BencodeType>),
-    Bmap(BTreeMap<Box<BencodeType>, BencodeType>), // needs to be BTreeMap instead of HashMap
-    // because HashMap cannot be hashed consistently as it has no fixed order unlike BTreeMap.
-    Bint(u64),
-    Null,
-}
-
-impl BencodeType {
-    fn find_val_for_key(&self, key: &str) -> &BencodeType {
-        match self {
-            BencodeType::Bmap(map) => map
-                .get(&BencodeType::Bstring(String::from(key)))
-                .unwrap_or(&BencodeType::Null),
-            _ => &BencodeType::Null,
-        }
-    }
-}
-
-/*
- * This function calls itsellf recursively until the Vec<u8> containing bencoded bytes is resolved
- * (or throws error)
-*/
-fn recursive_bencode_decoder(data: &Vec<u8>) -> anyhow::Result<(BencodeType, usize)> {
-    let mut index: usize = 0;
-
-    // if index is out of range for data at any point, error will be thrown which is expected
-    let mut data_char: char = data[index] as char;
-    if data_char.is_ascii_digit() {
-        let mut string_len_in_string_format: String = String::new();
-
-        while data_char != ':' {
-            string_len_in_string_format.push(data_char);
-            index += 1;
-            data_char = data[index] as char;
-        }
-
-        let string_len = string_len_in_string_format.parse::<usize>()?;
-        let str_start_index = index + 1;
-        let str_end_index = index + 1 + string_len;
-        let result_string =
-            String::from_utf8_lossy(&data[str_start_index..str_end_index].to_vec()).to_string();
-        let consumed = string_len + string_len_in_string_format.len() + 1; // +1 for ':'
-
-        return Ok((BencodeType::Bstring(result_string), consumed));
-    } else if data_char == 'i' {
-        let start_index = index;
-        index += 1;
-        data_char = data[index] as char;
-        let mut buffer: String = String::new();
-
-        while data_char != 'e' {
-            buffer.push(data_char);
-            index += 1;
-            data_char = data[index] as char;
-        }
-
-        let result_int = BencodeType::Bint(buffer.parse::<u64>()?);
-        let consumed = index - start_index + 1;
-
-        return Ok((result_int, consumed));
-    } else if data_char == 'l' {
-        let mut ben_vec: Vec<BencodeType> = Vec::new();
-        let start_index = 0;
-
-        while data[index] as char != 'e' {
-            let data_to_parse_start_index_offset: usize = if ben_vec.len() == 0 { 1 } else { 0 };
-            // when ben_vec is empty it means we are on 'l' and need to send data from the next index,
-            // but if it is not empty then it means we do not need to skip ahead 1 index as the
-            // vec elements are concatinated without any delimiter.
-
-            let (list_element, len_consumed) = recursive_bencode_decoder(
-                &data[index + data_to_parse_start_index_offset..].to_vec(),
-            )?;
-            index += if ben_vec.len() == 0 {
-                len_consumed + 1
-            } else {
-                len_consumed
-            };
-            ben_vec.push(list_element);
-        }
-
-        let consumed = index - start_index + 1;
-        let result_vec = BencodeType::Bvec(ben_vec);
-
-        return Ok((result_vec, consumed));
-    } else if data_char == 'd' {
-        let mut ben_map: BTreeMap<Box<BencodeType>, BencodeType> = BTreeMap::new();
-        let mut send_data_from_next_index = true;
-        let start_index = index;
-
-        while data[index] as char != 'e' {
-            let (key, new_index) = extract_btype(&data, index, send_data_from_next_index)?;
-            index = new_index;
-            send_data_from_next_index = false;
-
-            let (value, new_index) = extract_btype(&data, index, send_data_from_next_index)?;
-            index = new_index;
-
-            ben_map.insert(Box::new(key), value);
-        }
-
-        let consumed = index - start_index + 1;
-        let result_vec = BencodeType::Bmap(ben_map);
-
-        return Ok((result_vec, consumed));
-    }
-
-    println!("Could not parse the bencoded data properly!");
-    bail!("Could not parse the bencoded data properly!")
-}
-
-/*
- * Helper for the dictionary part of recursive_bencode_decoder
-*/
-fn extract_btype(
-    data: &[u8],
-    index: usize,
-    send_data_from_next_index: bool,
-) -> anyhow::Result<(BencodeType, usize)> {
-    let data_to_send_start_index: usize = if send_data_from_next_index { 1 } else { 0 };
-    let (data, new_index) =
-        recursive_bencode_decoder(&data[index + data_to_send_start_index..].to_vec())?;
-    let return_index = index
-        + if send_data_from_next_index {
-            new_index + 1
-        } else {
-            new_index
-        };
-    Ok((data, return_index))
-}
 
 /*
  * This function is responsible for converting the data in bencoded file into rust datatype.
 */
-fn decode_bencoded_file(file_path: String) -> anyhow::Result<BencodeType> {
+fn decode_bencoded_file(file_path: String) -> anyhow::Result<Torrent> {
     println!("Trying to read file {file_path}");
     let file_data = fs::read(&file_path);
     match file_data {
         Ok(file_data_vec) => {
             println!("Decoding bencoded file {file_path}");
-            let decoder_result = recursive_bencode_decoder(&file_data_vec);
+            let decoder_result = bendy::serde::from_bytes::<Torrent>(&file_data_vec);
             match decoder_result {
-                Ok((decoded_result, _)) => match decoded_result {
-                    BencodeType::Bmap(_) => {
-                        println!("File decoded succesfully!");
-                        Ok(decoded_result)
-                    }
-                    _ => {
-                        println!("File decoded but unexpected format..aborting!!");
-                        bail!("File decoded but unexpected format..aborting!!")
-                    }
-                },
+                Ok(torrent_data) => Ok(torrent_data),
                 Err(_) => {
                     println!("File could not be decoded!");
                     bail!("File could not be decoded!")
@@ -178,6 +38,91 @@ fn decode_bencoded_file(file_path: String) -> anyhow::Result<BencodeType> {
     }
 }
 
+// using Vec beacuse we have no idea how large can hash string be
+#[derive(Debug, Serialize)]
+struct Hashes(Vec<[u8; 20]>);
+struct HashesVisitor;
+
+impl<'de> Visitor<'de> for HashesVisitor {
+    type Value = Hashes;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a byte string whose length is multiple of 20")
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if v.len() % 20 != 0 {
+            return Err(E::custom(format!("length is {}", v.len())));
+        }
+        Ok(Hashes(
+            v.chunks_exact(20)
+                .map(|x| x.try_into().expect("will be len 20"))
+                .collect(),
+        ))
+    }
+}
+
+impl<'de> Deserialize<'de> for Hashes {
+    fn deserialize<D>(deserializer: D) -> Result<Hashes, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // in bendy deserialize_bytes calls visit_borrowed_bytes which by default uses visit_bytes
+        deserializer.deserialize_bytes(HashesVisitor)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct File {
+    length: usize,
+    path: Vec<String>,
+}
+
+// There are two possible forms:
+//     one for the case of a 'single-file' torrent with no directory structure
+//     one for the case of a 'multi-file' torrent
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum FileType {
+    SingleFile { length: usize },
+    MultiFile { files: Vec<File> },
+}
+
+// Dictionary that describes the file(s) of the torrent.
+#[derive(Debug, Deserialize, Serialize)]
+struct Info {
+    // suggested name for the file or the directory
+    name: String,
+
+    // number of bytes in each piece (integer)
+    #[serde(rename = "piece length")]
+    piece_length: usize,
+
+    // string consisting of the concatenation of all 20-byte SHA1 hash values, one per piece.
+    // Each piece has a corresponding SHA1 hash of the data contained within that piece.
+    // These hashes are concatenated to form the pieces value in the above info dictionary.
+    // Note that this is not a list but rather a single string in the bencoded form.
+    // The length of the string must be a multiple of 20.
+    // Instead of string using Vec<u8> beacause it is possible that bytes are not valid UTF-8.
+    pieces: Hashes,
+
+    #[serde(flatten)]
+    file_type: FileType,
+}
+
+// The content of a Torrent is a bencoded dictionary, containing the keys listed below. All character string values are UTF-8 encoded.
+// No optional field included for now.
+#[derive(Debug, Deserialize, Serialize)]
+struct Torrent {
+    info: Info,
+
+    // The announce URL of the tracker (string)
+    announce: String,
+}
+
 /*
  * This function downloads torrent resource using the .torrent file
 */
@@ -191,136 +136,33 @@ pub fn download_using_file() -> anyhow::Result<()> {
 
     // Console output is handled by the decode_bencoded_file function so no need to take any action
     // in case of faiure.
-    let announce = decoded_file_data.find_val_for_key("announce");
-    if let BencodeType::Bstring(announce_str) = announce {
-        println!("Starting download now, trying to contact {}", announce_str);
-    } else {
-        bail!("Could not find announce");
-    }
+    let announce = decoded_file_data.announce;
+    println!("Starting download now, trying to contact {}", announce);
     Ok(())
 }
 
 #[cfg(test)]
-mod download_test {
-    use std::collections::BTreeMap;
+mod tests {
+    use std::fs;
 
-    use crate::download::{decode_bencoded_file, recursive_bencode_decoder, BencodeType};
-
-    #[test]
-    fn check_decode_becoded_file_fails() {
-        let file_path: String = "non exisitng file path".to_string();
-        assert!(decode_bencoded_file(file_path).is_err());
-    }
+    use crate::download2::Torrent;
 
     #[test]
-    fn check_decode_becoded_file_passes() {
-        let file_path: String = r"torrent sample\sample.torrent".to_string();
-        assert!(decode_bencoded_file(file_path).is_ok());
-    }
+    fn bendy_from_bytes_success() {
+        let file_data = fs::read("torrent sample/sample.torrent").unwrap();
+        bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
 
-    #[test]
-    fn check_recursive_bencode_decoder_passes() {
-        let str_vec: &Vec<u8> = &String::from("11:Test String").into_bytes();
-        assert_eq!(
-            recursive_bencode_decoder(str_vec).unwrap().0,
-            BencodeType::Bstring(String::from("Test String"))
-        );
+        let file_data = fs::read("torrent sample/am.torrent").unwrap();
+        bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
 
-        let int_vec: &Vec<u8> = &String::from("i982e").into_bytes();
-        assert_eq!(
-            recursive_bencode_decoder(int_vec).unwrap().0,
-            BencodeType::Bint(982)
-        );
+        let file_data = fs::read("torrent sample/example.torrent").unwrap();
+        bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
 
-        let vec_vec: &Vec<u8> = &String::from("l4:spam4:eggse").into_bytes();
-        assert_eq!(
-            recursive_bencode_decoder(vec_vec).unwrap().0,
-            BencodeType::Bvec(vec![
-                BencodeType::Bstring(String::from("spam")),
-                BencodeType::Bstring(String::from("eggs"))
-            ])
-        );
+        let file_data = fs::read("torrent sample/test.torrent").unwrap();
+        bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
 
-        let map_vec: &Vec<u8> = &String::from("d4:spaml1:a1:bee").into_bytes();
-        let btmap = BTreeMap::from([(
-            Box::new(BencodeType::Bstring(String::from("spam"))),
-            BencodeType::Bvec(vec![
-                BencodeType::Bstring(String::from("a")),
-                BencodeType::Bstring(String::from("b")),
-            ]),
-        )]);
-        assert_eq!(
-            recursive_bencode_decoder(map_vec).unwrap().0,
-            BencodeType::Bmap(btmap)
-        );
-    }
-
-    #[should_panic]
-    #[test]
-    fn check_recursive_bencode_decoder_string_len_fails() {
-        let str_vec: &Vec<u8> = &String::from("12:Test String").into_bytes();
-        assert_eq!(
-            recursive_bencode_decoder(str_vec).unwrap().0,
-            BencodeType::Bstring(String::from("Test String"))
-        );
-    }
-
-    #[should_panic]
-    #[test]
-    fn check_recursive_bencode_decoder_int_no_end_fails() {
-        let int_vec: &Vec<u8> = &String::from("i32").into_bytes();
-        assert_eq!(
-            recursive_bencode_decoder(int_vec).unwrap().0,
-            BencodeType::Bstring(String::from("Should Panic"))
-        );
-    }
-
-    #[should_panic]
-    #[test]
-    fn check_recursive_bencode_decoder_deformed_fails() {
-        let data_vec: &Vec<u8> = &String::from("qi23e").into_bytes();
-        assert_eq!(
-            recursive_bencode_decoder(data_vec).unwrap().0,
-            BencodeType::Bstring(String::from("Should Panic"))
-        );
-    }
-
-    #[should_panic]
-    #[test]
-    fn check_recursive_bencode_decoder_vec_no_end_fails() {
-        let vec_vec: &Vec<u8> = &String::from("l4:spam4:eggs").into_bytes();
-        assert_eq!(
-            recursive_bencode_decoder(vec_vec).unwrap().0,
-            BencodeType::Bstring(String::from("Should Panic"))
-        );
-    }
-
-    #[should_panic]
-    #[test]
-    fn check_recursive_bencode_decoder_vec_bad_str_fails() {
-        let vec_vec: &Vec<u8> = &String::from("l4:spam3:eggs").into_bytes(); // eggs len should be
-                                                                             // 4
-        assert_eq!(
-            recursive_bencode_decoder(vec_vec).unwrap().0,
-            BencodeType::Bstring(String::from("Should Panic"))
-        );
-    }
-    #[should_panic]
-    #[test]
-    fn check_recursive_bencode_decoder_map_bad_str_fails() {
-        let map_vec: &Vec<u8> = &String::from("d4:spaml1:a1:bbee").into_bytes();
-        assert_eq!(
-            recursive_bencode_decoder(map_vec).unwrap().0,
-            BencodeType::Bstring(String::from("Should Panic"))
-        );
-    }
-    #[should_panic]
-    #[test]
-    fn check_recursive_bencode_decoder_bad_map_fails() {
-        let map_vec: &Vec<u8> = &String::from("d4:spaml1:a1:be").into_bytes();
-        assert_eq!(
-            recursive_bencode_decoder(map_vec).unwrap().0,
-            BencodeType::Bstring(String::from("Should Panic"))
-        );
+        // cannot check if orignal bytes are equal to encoded bytes since I skip some all optional field
+        // let encoder_result = bendy::serde::to_bytes::<Torrent>(&decoder_result).unwrap();
+        // assert_eq!(file_data.len(), encoder_result.len());
     }
 }
