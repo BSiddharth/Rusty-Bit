@@ -5,6 +5,7 @@ use std::{
     io::{self, ErrorKind, Write},
 };
 mod torrent;
+mod tracker;
 use torrent::Torrent;
 /*
  * This function is responsible for converting the data in bencoded file into rust datatype.
