@@ -1,5 +1,10 @@
-use crate::helper::read_string;
-use anyhow::bail;
+use crate::{
+    download::{torrent::Info, tracker::TrackerRequest},
+    helper::read_string,
+};
+use anyhow::{bail, Context};
+use rand::RngCore;
+use sha1::{Digest, Sha1};
 use std::{
     fs,
     io::{self, ErrorKind, Write},
@@ -51,6 +56,36 @@ pub fn download_using_file() -> anyhow::Result<()> {
     // in case of faiure.
     let announce = decoded_file_data.announce;
     println!("Starting download now, trying to contact {}", announce);
+
+    let mut hasher = Sha1::new();
+    hasher.update(
+        bendy::serde::to_bytes::<Info>(&decoded_file_data.info)
+            .context("Info hash could not calculated")?,
+    );
+    let info_hash = hasher.finalize();
+    println!("So the hash is {:?}", info_hash);
+
+    let mut peer_id = [0u8; 20];
+    rand::thread_rng().fill_bytes(&mut peer_id);
+    println!("{:?}", peer_id);
+
+    let torrent_data_len = match decoded_file_data.info.file_type {
+        torrent::FileType::SingleFile { length } => length,
+        torrent::FileType::MultiFile { files } => files.iter().map(|file| file.length).sum(),
+    };
+
+    let tracker_request = TrackerRequest {
+        info_hash: info_hash.into(),
+        peer_id,
+        port: 6888,
+        uploaded: 0,
+        downloaded: 0,
+        left: torrent_data_len,
+        compact: 1,
+        no_peer_id: 6,
+        event: tracker::Event::STARTED,
+    };
+
     Ok(())
 }
 

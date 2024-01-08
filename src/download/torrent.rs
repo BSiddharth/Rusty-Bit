@@ -43,8 +43,8 @@ impl<'de> Deserialize<'de> for Hashes {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct File {
-    length: usize,
+pub struct File {
+    pub length: usize,
     path: Vec<String>,
 }
 
@@ -53,14 +53,14 @@ struct File {
 //     one for the case of a 'multi-file' torrent
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
-enum FileType {
+pub enum FileType {
     SingleFile { length: usize },
     MultiFile { files: Vec<File> },
 }
 
 // Dictionary that describes the file(s) of the torrent.
 #[derive(Debug, Deserialize, Serialize)]
-struct Info {
+pub struct Info {
     // suggested name for the file or the directory
     name: String,
 
@@ -77,14 +77,14 @@ struct Info {
     pieces: Hashes,
 
     #[serde(flatten)]
-    file_type: FileType,
+    pub file_type: FileType,
 }
 
 // The content of a Torrent is a bencoded dictionary, containing the keys listed below. All character string values are UTF-8 encoded.
 // No optional field included for now.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Torrent {
-    info: Info,
+    pub info: Info,
 
     // The announce URL of the tracker (string)
     pub announce: String,

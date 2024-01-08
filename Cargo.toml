@@ -9,3 +9,5 @@ edition = "2021"
 anyhow = "1.0.76"
 serde = { version = "1.0.195", features = ["derive"] }
 bendy = { version = "^0.3.3", features = ["std", "serde"] }
+sha1 = "0.10.6"
+rand = "0.8.5"
