@@ -2,11 +2,11 @@ use std::fmt;
 
 use serde::{
     de::{self, Visitor},
-    Deserialize, Deserializer, Serialize,
+    Deserialize, Deserializer, Serialize, Serializer,
 };
 
 // using Vec beacuse we have no idea how large can hash string be
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 struct Hashes(Vec<[u8; 20]>);
 struct HashesVisitor;
 
@@ -39,6 +39,16 @@ impl<'de> Deserialize<'de> for Hashes {
     {
         // in bendy deserialize_bytes calls visit_borrowed_bytes which by default uses visit_bytes
         deserializer.deserialize_bytes(HashesVisitor)
+    }
+}
+
+impl Serialize for Hashes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let data = &self.0;
+        serializer.serialize_bytes(&data.concat())
     }
 }
 

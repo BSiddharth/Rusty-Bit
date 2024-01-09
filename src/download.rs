@@ -62,7 +62,7 @@ pub fn download_using_file() -> anyhow::Result<()> {
         bendy::serde::to_bytes::<Info>(&decoded_file_data.info)
             .context("Info hash could not calculated")?,
     );
-    let info_hash = hasher.finalize();
+    let info_hash: [u8; 20] = hasher.finalize().into();
     println!("So the hash is {:?}", info_hash);
 
     let mut peer_id = [0u8; 20];
@@ -75,7 +75,7 @@ pub fn download_using_file() -> anyhow::Result<()> {
     };
 
     let tracker_request = TrackerRequest {
-        info_hash: info_hash.into(),
+        info_hash,
         peer_id,
         port: 6888,
         uploaded: 0,
@@ -98,16 +98,20 @@ mod tests {
     #[test]
     fn bendy_from_bytes_success() {
         let file_data = fs::read("torrent sample/sample.torrent").unwrap();
-        bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
+        let deserialized_data = bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
+        let _ = bendy::serde::to_bytes(&deserialized_data);
 
         let file_data = fs::read("torrent sample/am.torrent").unwrap();
-        bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
+        let deserialized_data = bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
+        let _ = bendy::serde::to_bytes(&deserialized_data);
 
         let file_data = fs::read("torrent sample/example.torrent").unwrap();
-        bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
+        let deserialized_data = bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
+        let _ = bendy::serde::to_bytes(&deserialized_data);
 
         let file_data = fs::read("torrent sample/test.torrent").unwrap();
-        bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
+        let deserialized_data = bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
+        let _ = bendy::serde::to_bytes(&deserialized_data);
 
         // cannot check if orignal bytes are equal to encoded bytes since I skip some all optional field
         // let encoder_result = bendy::serde::to_bytes::<Torrent>(&decoder_result).unwrap();
