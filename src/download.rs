@@ -4,6 +4,7 @@ use crate::{
 };
 use anyhow::{bail, Context};
 use rand::RngCore;
+use serde::de::value::UsizeDeserializer;
 use sha1::{Digest, Sha1};
 use std::{
     fs,
@@ -63,28 +64,15 @@ pub fn download_using_file() -> anyhow::Result<()> {
             .context("Info hash could not calculated")?,
     );
     let info_hash: [u8; 20] = hasher.finalize().into();
-    println!("So the hash is {:?}", info_hash);
-
-    let mut peer_id = [0u8; 20];
-    rand::thread_rng().fill_bytes(&mut peer_id);
-    println!("{:?}", peer_id);
+    println!("So the hash is {:x?}", info_hash);
 
     let torrent_data_len = match decoded_file_data.info.file_type {
         torrent::FileType::SingleFile { length } => length,
         torrent::FileType::MultiFile { files } => files.iter().map(|file| file.length).sum(),
     };
 
-    let tracker_request = TrackerRequest {
-        info_hash,
-        peer_id,
-        port: 6888,
-        uploaded: 0,
-        downloaded: 0,
-        left: torrent_data_len,
-        compact: 1,
-        no_peer_id: 6,
-        event: tracker::Event::STARTED,
-    };
+    let new_tracker_request = TrackerRequest::new(info_hash, torrent_data_len);
+    let _ = new_tracker_request.initial_connect(&announce, info_hash, torrent_data_len);
 
     Ok(())
 }
