@@ -3,8 +3,6 @@ use crate::{
     helper::read_string,
 };
 use anyhow::{bail, Context};
-use rand::RngCore;
-use serde::de::value::UsizeDeserializer;
 use sha1::{Digest, Sha1};
 use std::{
     fs,
@@ -55,24 +53,16 @@ pub fn download_using_file() -> anyhow::Result<()> {
 
     // Console output is handled by the decode_bencoded_file function so no need to take any action
     // in case of faiure.
-    let announce = decoded_file_data.announce;
+    let announce = &decoded_file_data.announce;
     println!("Starting download now, trying to contact {}", announce);
-
-    let mut hasher = Sha1::new();
-    hasher.update(
-        bendy::serde::to_bytes::<Info>(&decoded_file_data.info)
-            .context("Info hash could not calculated")?,
-    );
-    let info_hash: [u8; 20] = hasher.finalize().into();
-    println!("So the hash is {:x?}", info_hash);
 
     let torrent_data_len = match decoded_file_data.info.file_type {
         torrent::FileType::SingleFile { length } => length,
-        torrent::FileType::MultiFile { files } => files.iter().map(|file| file.length).sum(),
+        torrent::FileType::MultiFile { ref files } => files.iter().map(|file| file.length).sum(),
     };
 
-    let new_tracker_request = TrackerRequest::new(info_hash, torrent_data_len);
-    let _ = new_tracker_request.initial_connect(&announce, info_hash, torrent_data_len);
+    let new_tracker_request = TrackerRequest::new(decoded_file_data.calc_hash()?, torrent_data_len);
+    let _ = new_tracker_request.initial_connect(&announce, decoded_file_data.calc_hash()?);
 
     Ok(())
 }

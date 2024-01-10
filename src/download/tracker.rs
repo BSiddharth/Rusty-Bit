@@ -1,8 +1,6 @@
 use anyhow::Ok;
 use rand::distributions::{Alphanumeric, DistString};
-use serde::Serialize;
 
-#[derive(Serialize)]
 pub enum Event {
     //The first request to the tracker must include the event key with this value.
     STARTED,
@@ -16,7 +14,6 @@ pub enum Event {
     COMPLETED,
 }
 
-#[derive(Serialize)]
 pub struct TrackerRequest {
     // urlencoded 20-byte SHA1 hash of the value of the info key from the Metainfo file.
     // Note that the value will be a bencoded dictionary, given the definition of the info key above.
@@ -64,7 +61,7 @@ pub struct TrackerRequest {
 
 impl TrackerRequest {
     pub fn new(info_hash: [u8; 20], total_size: usize) -> Self {
-        let peer_id = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+        let peer_id = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
 
         TrackerRequest {
             info_hash,
@@ -77,22 +74,41 @@ impl TrackerRequest {
             event: Event::STARTED,
         }
     }
-    pub fn initial_connect(
-        &self,
-        base_url: &String,
-        info_hash: [u8; 20],
-        left: usize,
-    ) -> anyhow::Result<()> {
-        // let params = [("key", api_key), ("country", "US"), ("year", "2020")];
-        // let url = reqwest::Url::parse_with_params(base_url, &params)?;
-        let client = reqwest::blocking::Client::new();
-        let response = client.get(base_url).query(self).send();
-        println!("{}", response.as_ref().unwrap().url());
-        match response {
-            Result::Ok(_) => println!("Success I guess"),
-            Err(_) => println!("Ehhh"),
-        }
-
+    pub fn url(&self, base_url: &String, info_hash: [u8; 20]) -> String {
+        let url_encoded_info_hash = urlencoding::encode_binary(&info_hash);
+        let mut url = String::new();
+        url.push_str(base_url);
+        url.push('?');
+        url.push_str("info_hash=");
+        url.push_str(&url_encoded_info_hash);
+        url.push('&');
+        url.push_str("peer_id=");
+        url.push_str(&self.peer_id);
+        url.push('&');
+        url.push_str("port=");
+        url.push_str(&self.port.to_string());
+        url.push('&');
+        url.push_str("uploaded=");
+        url.push_str(&self.uploaded.to_string());
+        url.push('&');
+        url.push_str("downloaded=");
+        url.push_str(&self.downloaded.to_string());
+        url.push('&');
+        url.push_str("left=");
+        url.push_str(&self.left.to_string());
+        url.push('&');
+        url.push_str("compact=");
+        url.push_str(&(self.compact as u8).to_string());
+        url
+    }
+    pub fn initial_connect(&self, base_url: &String, info_hash: [u8; 20]) -> anyhow::Result<()> {
+        // cannot do this because query uses urlencoded which cannot Serialize [u8] !!
+        // let client = reqwest::blocking::Client::new();
+        // let response = client.get(base_url).query(self).send();
+        let url = self.url(base_url, info_hash);
+        // println!("{}", url);
+        let response = reqwest::blocking::get(url)?;
+        println!("{:?}", response.text());
         // println!("result = {:#?}", res.text().unwrap());
         Ok(())
     }

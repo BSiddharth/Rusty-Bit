@@ -1,10 +1,12 @@
 use std::fmt;
 
+use anyhow::{Context, Ok};
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
 };
 
+use sha1::{Digest, Sha1};
 // using Vec beacuse we have no idea how large can hash string be
 #[derive(Debug)]
 struct Hashes(Vec<[u8; 20]>);
@@ -24,7 +26,7 @@ impl<'de> Visitor<'de> for HashesVisitor {
         if v.len() % 20 != 0 {
             return Err(E::custom(format!("length is {}", v.len())));
         }
-        Ok(Hashes(
+        Result::Ok(Hashes(
             v.chunks_exact(20)
                 .map(|x| x.try_into().expect("will be len 20"))
                 .collect(),
@@ -98,4 +100,14 @@ pub struct Torrent {
 
     // The announce URL of the tracker (string)
     pub announce: String,
+}
+
+impl Torrent {
+    pub fn calc_hash(&self) -> anyhow::Result<[u8; 20]> {
+        let mut hasher = Sha1::new();
+        hasher.update(
+            bendy::serde::to_bytes::<Info>(&self.info).context("Info hash could not calculated")?,
+        );
+        Ok(hasher.finalize().into())
+    }
 }
