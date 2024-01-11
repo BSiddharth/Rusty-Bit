@@ -74,8 +74,8 @@ impl TrackerRequest {
             event: Event::STARTED,
         }
     }
-    pub fn url(&self, base_url: &String, info_hash: [u8; 20]) -> String {
-        let url_encoded_info_hash = urlencoding::encode_binary(&info_hash);
+    pub fn url(&self, base_url: &String) -> String {
+        let url_encoded_info_hash = urlencoding::encode_binary(&self.info_hash);
         let mut url = String::new();
         url.push_str(base_url);
         url.push('?');
@@ -100,16 +100,5 @@ impl TrackerRequest {
         url.push_str("compact=");
         url.push_str(&(self.compact as u8).to_string());
         url
-    }
-    pub fn initial_connect(&self, base_url: &String, info_hash: [u8; 20]) -> anyhow::Result<()> {
-        // cannot do this because query uses urlencoded which cannot Serialize [u8] !!
-        // let client = reqwest::blocking::Client::new();
-        // let response = client.get(base_url).query(self).send();
-        let url = self.url(base_url, info_hash);
-        // println!("{}", url);
-        let response = reqwest::blocking::get(url)?;
-        println!("{:?}", response.text());
-        // println!("result = {:#?}", res.text().unwrap());
-        Ok(())
     }
 }

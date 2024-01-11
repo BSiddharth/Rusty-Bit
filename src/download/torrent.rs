@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, usize};
 
 use anyhow::{Context, Ok};
 use serde::{
@@ -7,6 +7,8 @@ use serde::{
 };
 
 use sha1::{Digest, Sha1};
+
+use crate::download::tracker::TrackerRequest;
 // using Vec beacuse we have no idea how large can hash string be
 #[derive(Debug)]
 struct Hashes(Vec<[u8; 20]>);
@@ -109,5 +111,22 @@ impl Torrent {
             bendy::serde::to_bytes::<Info>(&self.info).context("Info hash could not calculated")?,
         );
         Ok(hasher.finalize().into())
+    }
+
+    pub fn start_download(&self) -> anyhow::Result<()> {
+        // cannot do this because query uses urlencoded which cannot Serialize [u8] !!
+        // let client = reqwest::blocking::Client::new();
+        // let response = client.get(base_url).query(self).send();
+
+        let torrent_data_len: usize = match self.info.file_type {
+            FileType::SingleFile { ref length } => *length,
+            FileType::MultiFile { ref files } => files.iter().map(|file| file.length).sum(),
+        };
+        let info_hash = self.calc_hash()?;
+        let tracker_request = TrackerRequest::new(info_hash, torrent_data_len);
+        let url = tracker_request.url(&self.announce);
+        let response = reqwest::blocking::get(url)?;
+        println!("{:?}", response.text());
+        Ok(())
     }
 }

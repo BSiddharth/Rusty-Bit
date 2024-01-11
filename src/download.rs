@@ -11,6 +11,7 @@ use std::{
 mod torrent;
 mod tracker;
 use torrent::Torrent;
+
 /*
  * This function is responsible for converting the data in bencoded file into rust datatype.
 */
@@ -49,20 +50,12 @@ pub fn download_using_file() -> anyhow::Result<()> {
 
     let file_path = read_string();
     println!();
-    let decoded_file_data = decode_bencoded_file(file_path)?;
-
-    // Console output is handled by the decode_bencoded_file function so no need to take any action
-    // in case of faiure.
+    let decoded_file_data = decode_bencoded_file(file_path)?; // Console output is handled by the decode_bencoded_file function
+                                                              // so no need to take any action in case of faiure.
     let announce = &decoded_file_data.announce;
     println!("Starting download now, trying to contact {}", announce);
 
-    let torrent_data_len = match decoded_file_data.info.file_type {
-        torrent::FileType::SingleFile { length } => length,
-        torrent::FileType::MultiFile { ref files } => files.iter().map(|file| file.length).sum(),
-    };
-
-    let new_tracker_request = TrackerRequest::new(decoded_file_data.calc_hash()?, torrent_data_len);
-    let _ = new_tracker_request.initial_connect(&announce, decoded_file_data.calc_hash()?);
+    let _ = decoded_file_data.start_download();
 
     Ok(())
 }
