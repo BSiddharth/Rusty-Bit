@@ -1,9 +1,6 @@
-use crate::{
-    download::{torrent::Info, tracker::TrackerRequest},
-    helper::read_string,
-};
+use crate::{download::tracker::TrackerResponse, helper::read_string};
 use anyhow::{bail, Context};
-use sha1::{Digest, Sha1};
+use bendy;
 use std::{
     fs,
     io::{self, ErrorKind, Write},
@@ -50,13 +47,27 @@ pub fn download_using_file() -> anyhow::Result<()> {
 
     let file_path = read_string();
     println!();
-    let decoded_file_data = decode_bencoded_file(file_path)?; // Console output is handled by the decode_bencoded_file function
-                                                              // so no need to take any action in case of faiure.
+    let mut decoded_file_data = decode_bencoded_file(file_path)?;
+    // Console output is handled by the decode_bencoded_file function so no need to take any action in case of faiure.
+
     let announce = &decoded_file_data.announce;
     println!("Starting download now, trying to contact {}", announce);
 
-    let _ = decoded_file_data.start_download();
+    let response = decoded_file_data
+        .start_download()
+        .context("Could not start download")?;
 
+    // println!("response: {:?}", response.text());
+    let tracker_reponse: TrackerResponse = bendy::serde::from_bytes(
+        // r"d8:completei3e10:incompletei3e8:intervali60e12:min intervali60e5:peers18:�>RY�\u{e}��!M�\u{b}�>U\u{14}�!e"
+        // .as_bytes(),
+        &response
+            .bytes()
+            .context("could not convert response to bytes")?,
+    )
+    .context("could not convert response bytes to TrackerResponse")?;
+
+    println!("{tracker_reponse:?}");
     Ok(())
 }
 

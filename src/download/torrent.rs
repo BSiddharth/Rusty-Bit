@@ -1,6 +1,7 @@
 use std::{fmt, usize};
 
 use anyhow::{Context, Ok};
+use reqwest::blocking::Response;
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
@@ -102,31 +103,42 @@ pub struct Torrent {
 
     // The announce URL of the tracker (string)
     pub announce: String,
+
+    #[serde(skip)]
+    pub info_hash: Option<[u8; 20]>,
 }
 
 impl Torrent {
-    pub fn calc_hash(&self) -> anyhow::Result<[u8; 20]> {
-        let mut hasher = Sha1::new();
-        hasher.update(
-            bendy::serde::to_bytes::<Info>(&self.info).context("Info hash could not calculated")?,
-        );
-        Ok(hasher.finalize().into())
+    pub fn calc_hash(&mut self) -> anyhow::Result<[u8; 20]> {
+        match self.info_hash {
+            Some(info_hash) => Ok(info_hash),
+            None => {
+                let mut hasher = Sha1::new();
+                hasher.update(
+                    bendy::serde::to_bytes::<Info>(&self.info)
+                        .context("Info hash could not calculated")?,
+                );
+                let info_hash = hasher.finalize().into();
+                self.info_hash = Some(info_hash);
+                Ok(info_hash)
+            }
+        }
     }
 
-    pub fn start_download(&self) -> anyhow::Result<()> {
+    pub fn start_download(&mut self) -> anyhow::Result<Response> {
         // cannot do this because query uses urlencoded which cannot Serialize [u8] !!
         // let client = reqwest::blocking::Client::new();
         // let response = client.get(base_url).query(self).send();
 
         let torrent_data_len: usize = match self.info.file_type {
-            FileType::SingleFile { ref length } => *length,
+            FileType::SingleFile { length } => length,
             FileType::MultiFile { ref files } => files.iter().map(|file| file.length).sum(),
         };
-        let info_hash = self.calc_hash()?;
+        let info_hash = self.calc_hash().context("could not calculate hash")?;
         let tracker_request = TrackerRequest::new(info_hash, torrent_data_len);
         let url = tracker_request.url(&self.announce);
         let response = reqwest::blocking::get(url)?;
-        println!("{:?}", response.text());
-        Ok(())
+        // println!("{:?}", response.text());
+        Ok(response)
     }
 }

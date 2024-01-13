@@ -31,6 +31,8 @@ ______          _          ______ _ _
                 let result = download_using_file();
                 if result.is_ok() {
                     break;
+                } else {
+                    println!("Download failed, reason: {:?}", result.err());
                 }
             }
             "2" => {

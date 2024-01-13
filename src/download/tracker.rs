@@ -1,6 +1,12 @@
-use anyhow::Ok;
-use rand::distributions::{Alphanumeric, DistString};
+use std::{fmt, net::IpAddr, str::FromStr, string};
 
+use rand::distributions::{Alphanumeric, DistString};
+use serde::{
+    de::{self, Visitor},
+    Deserialize, Deserializer,
+};
+
+#[allow(dead_code)]
 pub enum Event {
     //The first request to the tracker must include the event key with this value.
     STARTED,
@@ -59,6 +65,7 @@ pub struct TrackerRequest {
     pub event: Event,
 }
 
+// The tracker responds with "text/plain" document consisting of a bencoded dictionary
 impl TrackerRequest {
     pub fn new(info_hash: [u8; 20], total_size: usize) -> Self {
         let peer_id = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
@@ -101,4 +108,102 @@ impl TrackerRequest {
         url.push_str(&(self.compact as u8).to_string());
         url
     }
+}
+
+#[derive(Debug)]
+struct Peer {
+    ip_addr: String,
+    port: u16,
+}
+impl Peer {
+    fn from_bytes(peer_bytes: &[u8; 6]) -> Peer {
+        let mut ip_addr = String::new();
+        for i in 0..4 {
+            ip_addr
+                .push_str(&u8::from_be_bytes(peer_bytes[i..i + 1].try_into().unwrap()).to_string());
+            if i != 3 {
+                ip_addr.push('.');
+            }
+        }
+        let port = u16::from_be_bytes(peer_bytes[4..6].try_into().unwrap());
+        Peer { ip_addr, port }
+    }
+}
+// Setting compact to 1 indicates that the peers list is replaced by a peers string with 6 bytes per peer.
+// The first four bytes are the host (in network byte order), the last two bytes are the port (again in network byte order)
+// So in compact = 1 case peers cannot be a dictionary, it has to be a byte string
+// For example, a client at the IP 10.10.10.5 listening on port 128
+// would be coded as a string containing the following bytes 0A 0A 0A 05 00 80 (10 10 10 5 0 128)
+#[allow(dead_code)]
+#[derive(Debug)]
+struct Peers(Vec<Peer>);
+
+#[allow(dead_code)]
+struct PeersVisitor;
+
+impl<'de> Visitor<'de> for PeersVisitor {
+    type Value = Peers;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a Peer list string of size that is a multiple of 6")
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if v.len() % 6 != 0 {
+            return Err(E::custom(format!("length is {}", v.len())));
+        }
+        Result::Ok(Peers(
+            v.chunks_exact(6)
+                .map(|x| Peer::from_bytes(x.try_into().unwrap()))
+                .collect(),
+        ))
+    }
+}
+
+impl<'de> Deserialize<'de> for Peers {
+    fn deserialize<D>(deserializer: D) -> Result<Peers, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_bytes(PeersVisitor)
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum TrackerResponseType {
+    Success {
+        // number of peers with the entire file, i.e. seeders (integer)
+        complete: usize,
+
+        // number of non-seeder peers, aka "leechers" (integer)
+        incomplete: usize,
+
+        // Interval in seconds that the client should wait between sending regular requests to the tracker
+        interval: usize,
+
+        peers: Peers,
+
+        //A string that the client should send back on its next announcements.
+        //If absent and a previous announce sent a tracker id, do not discard the old value; keep using it.
+        #[serde(skip)]
+        #[serde(rename = "tracker id")]
+        tracker_id: String,
+    },
+    Failure {
+        // The value is a human-readable error message as to why the request failed (string).
+        #[serde(rename = "failure reason")]
+        failure_reason: String,
+    },
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+pub struct TrackerResponse {
+    #[serde(flatten)]
+    tracker_response_type: TrackerResponseType,
 }
