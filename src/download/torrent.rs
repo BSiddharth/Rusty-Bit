@@ -1,11 +1,11 @@
-use std::{fmt, usize};
-
 use anyhow::{Context, Ok};
 use reqwest::blocking::Response;
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
 };
+use serde_bencode;
+use std::{fmt, usize};
 
 use sha1::{Digest, Sha1};
 
@@ -115,7 +115,7 @@ impl Torrent {
             None => {
                 let mut hasher = Sha1::new();
                 hasher.update(
-                    bendy::serde::to_bytes::<Info>(&self.info)
+                    serde_bencode::to_bytes::<Info>(&self.info)
                         .context("Info hash could not calculated")?,
                 );
                 let info_hash = hasher.finalize().into();

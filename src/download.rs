@@ -1,12 +1,12 @@
 use crate::{download::tracker::TrackerResponse, helper::read_string};
 use anyhow::{bail, Context};
-use bendy;
 use std::{
     fs,
     io::{self, ErrorKind, Write},
 };
 mod torrent;
 mod tracker;
+use serde_bencode;
 use torrent::Torrent;
 
 /*
@@ -18,7 +18,7 @@ fn decode_bencoded_file(file_path: String) -> anyhow::Result<Torrent> {
     match file_data {
         Ok(file_data_vec) => {
             println!("Decoding bencoded file {file_path}");
-            let decoder_result = bendy::serde::from_bytes::<Torrent>(&file_data_vec);
+            let decoder_result = serde_bencode::from_bytes::<Torrent>(&file_data_vec);
             match decoder_result {
                 Ok(torrent_data) => Ok(torrent_data),
                 Err(_) => {
@@ -58,7 +58,7 @@ pub fn download_using_file() -> anyhow::Result<()> {
         .context("Could not start download")?;
 
     // println!("response: {:?}", response.text());
-    let tracker_reponse: TrackerResponse = bendy::serde::from_bytes(
+    let tracker_reponse: TrackerResponse = serde_bencode::from_bytes(
         // r"d8:completei3e10:incompletei3e8:intervali60e12:min intervali60e5:peers18:�>RY�\u{e}��!M�\u{b}�>U\u{14}�!e"
         // .as_bytes(),
         &response
@@ -80,23 +80,23 @@ mod tests {
     #[test]
     fn bendy_from_bytes_success() {
         let file_data = fs::read("torrent sample/sample.torrent").unwrap();
-        let deserialized_data = bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
-        let _ = bendy::serde::to_bytes(&deserialized_data);
+        let deserialized_data = serde_bencode::from_bytes::<Torrent>(&file_data).unwrap();
+        let _ = serde_bencode::to_bytes(&deserialized_data);
 
         let file_data = fs::read("torrent sample/am.torrent").unwrap();
-        let deserialized_data = bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
-        let _ = bendy::serde::to_bytes(&deserialized_data);
+        let deserialized_data = serde_bencode::from_bytes::<Torrent>(&file_data).unwrap();
+        let _ = serde_bencode::to_bytes(&deserialized_data);
 
         let file_data = fs::read("torrent sample/example.torrent").unwrap();
-        let deserialized_data = bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
-        let _ = bendy::serde::to_bytes(&deserialized_data);
+        let deserialized_data = serde_bencode::from_bytes::<Torrent>(&file_data).unwrap();
+        let _ = serde_bencode::to_bytes(&deserialized_data);
 
         let file_data = fs::read("torrent sample/test.torrent").unwrap();
-        let deserialized_data = bendy::serde::from_bytes::<Torrent>(&file_data).unwrap();
-        let _ = bendy::serde::to_bytes(&deserialized_data);
+        let deserialized_data = serde_bencode::from_bytes::<Torrent>(&file_data).unwrap();
+        let _ = serde_bencode::to_bytes(&deserialized_data);
 
         // cannot check if orignal bytes are equal to encoded bytes since I skip some all optional field
-        // let encoder_result = bendy::serde::to_bytes::<Torrent>(&decoder_result).unwrap();
+        // let encoder_result = serde_bencode::to_bytes::<Torrent>(&decoder_result).unwrap();
         // assert_eq!(file_data.len(), encoder_result.len());
     }
 }
