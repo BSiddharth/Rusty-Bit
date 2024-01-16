@@ -1,8 +1,12 @@
-use crate::{download::tracker::TrackerResponse, helper::read_string};
+use crate::{
+    download::tracker::{HandShake, TrackerResponse},
+    helper::read_string,
+};
 use anyhow::{bail, Context};
+use rand::distributions::{Alphanumeric, DistString};
 use std::{
     fs,
-    io::{self, ErrorKind, Write},
+    io::{self, ErrorKind, Read, Write},
 };
 mod torrent;
 mod tracker;
@@ -52,9 +56,9 @@ pub fn download_using_file() -> anyhow::Result<()> {
 
     let announce = &decoded_file_data.announce;
     println!("Starting download now, trying to contact {}", announce);
-
+    let peer_id = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
     let response = decoded_file_data
-        .start_download()
+        .start_download(peer_id.clone())
         .context("Could not start download")?;
 
     // println!("response: {:?}", response.text());
@@ -67,7 +71,52 @@ pub fn download_using_file() -> anyhow::Result<()> {
     )
     .context("could not convert response bytes to TrackerResponse")?;
 
-    println!("{tracker_reponse:?}");
+    match tracker_reponse.tracker_response_type {
+        tracker::TrackerResponseType::Success {
+            complete,
+            incomplete,
+            interval,
+            peers,
+            tracker_id,
+        } => {
+            println!("Connected to the tracker");
+
+            let peer_list: Vec<String> = peers
+                .0
+                .iter()
+                .map(|peer_info| format!("{}:{}", peer_info.ip_addr, peer_info.port.to_string()))
+                .collect();
+            println!("All the available peers are: {peer_list:?}");
+            println!("Connecting to the first peer");
+
+            let handshake = HandShake::new(
+                decoded_file_data.info_hash.unwrap(),
+                peer_id.as_bytes().try_into().unwrap(),
+            );
+            let encoded = bincode::serialize(&handshake).unwrap();
+            let mut stream =
+                std::net::TcpStream::connect(&peer_list[0]).context("Connecting with peer")?;
+            stream.write_all(&encoded)?;
+            let mut response = [0 as u8; 68];
+            stream.read_exact(&mut response)?;
+
+            let decoded: HandShake = bincode::deserialize(&response)?;
+
+            println!("pstrlen: {}", decoded.pstrlen);
+            println!(
+                "pstr: {}",
+                String::from_utf8(decoded.pstr.to_vec()).unwrap()
+            );
+            println!(
+                "peer_id: {}",
+                String::from_utf8_lossy(&decoded.peer_id.to_vec())
+            );
+        }
+        tracker::TrackerResponseType::Failure { failure_reason } => {
+            println!("tracker could not be connected due to: {failure_reason}")
+        }
+    }
+
     Ok(())
 }
 

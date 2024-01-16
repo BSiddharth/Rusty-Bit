@@ -3,7 +3,7 @@ use std::fmt;
 use rand::distributions::{Alphanumeric, DistString};
 use serde::{
     de::{self, Visitor},
-    Deserialize, Deserializer,
+    Deserialize, Deserializer, Serialize,
 };
 
 #[allow(dead_code)]
@@ -67,9 +67,7 @@ pub struct TrackerRequest {
 
 // The tracker responds with "text/plain" document consisting of a bencoded dictionary
 impl TrackerRequest {
-    pub fn new(info_hash: [u8; 20], total_size: usize) -> Self {
-        let peer_id = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
-
+    pub fn new(info_hash: [u8; 20], total_size: usize, peer_id: String) -> Self {
         TrackerRequest {
             info_hash,
             peer_id,
@@ -111,9 +109,10 @@ impl TrackerRequest {
 }
 
 #[derive(Debug)]
-struct Peer {
-    ip_addr: String,
-    port: u16,
+#[allow(dead_code)]
+pub struct Peer {
+    pub ip_addr: String,
+    pub port: u16,
 }
 impl Peer {
     fn from_bytes(peer_bytes: &[u8; 6]) -> Peer {
@@ -136,7 +135,7 @@ impl Peer {
 // would be coded as a string containing the following bytes 0A 0A 0A 05 00 80 (10 10 10 5 0 128)
 #[allow(dead_code)]
 #[derive(Debug)]
-struct Peers(Vec<Peer>);
+pub struct Peers(pub Vec<Peer>);
 
 #[allow(dead_code)]
 struct PeersVisitor;
@@ -175,7 +174,7 @@ impl<'de> Deserialize<'de> for Peers {
 #[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
-enum TrackerResponseType {
+pub enum TrackerResponseType {
     Success {
         // number of peers with the entire file, i.e. seeders (integer)
         complete: usize,
@@ -205,5 +204,44 @@ enum TrackerResponseType {
 #[derive(Deserialize, Debug)]
 pub struct TrackerResponse {
     #[serde(flatten)]
-    tracker_response_type: TrackerResponseType,
+    pub tracker_response_type: TrackerResponseType,
+}
+
+#[allow(dead_code)]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct HandShake {
+    // string length of <pstr>, as a single raw byte
+    // In version 1.0 of the BitTorrent protocol, pstrlen = 19
+    pub pstrlen: u8,
+
+    // string identifier of the protocol.
+    // In version 1.0 of the BitTorrent protocol, pstr = "BitTorrent protocol" (len 19).
+    pub pstr: [u8; 19],
+
+    // eight (8) reserved bytes. All current implementations use all zeroes.
+    // Each bit in these bytes can be used to change the behavior of the protocol.
+    // An email from Bram suggests that trailing bits should be used first,
+    // so that leading bits may be used to change the meaning of trailing bits.
+    pub reserved: [u8; 8],
+
+    // 20-byte SHA1 hash of the info key in the metainfo file.
+    // This is the same info_hash that is transmitted in tracker requests.
+    pub info_hash: [u8; 20],
+
+    // 20-byte string used as a unique ID for the client.
+    // This is usually the same peer_id that is transmitted in tracker requests
+    // (but not always e.g. an anonymity option in Azureus).
+    pub peer_id: [u8; 20],
+}
+
+impl HandShake {
+    pub fn new(info_hash: [u8; 20], peer_id: [u8; 20]) -> HandShake {
+        HandShake {
+            pstrlen: 19,
+            pstr: *b"BitTorrent protocol",
+            reserved: [0; 8],
+            info_hash,
+            peer_id,
+        }
+    }
 }

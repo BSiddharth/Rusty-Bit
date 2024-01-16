@@ -125,7 +125,7 @@ impl Torrent {
         }
     }
 
-    pub fn start_download(&mut self) -> anyhow::Result<Response> {
+    pub fn start_download(&mut self, peer_id: String) -> anyhow::Result<Response> {
         // cannot do this because query uses urlencoded which cannot Serialize [u8] !!
         // let client = reqwest::blocking::Client::new();
         // let response = client.get(base_url).query(self).send();
@@ -135,7 +135,7 @@ impl Torrent {
             FileType::MultiFile { ref files } => files.iter().map(|file| file.length).sum(),
         };
         let info_hash = self.calc_hash().context("could not calculate hash")?;
-        let tracker_request = TrackerRequest::new(info_hash, torrent_data_len);
+        let tracker_request = TrackerRequest::new(info_hash, torrent_data_len, peer_id);
         let url = tracker_request.url(&self.announce);
         let response = reqwest::blocking::get(url)?;
         // println!("{:?}", response.text());
