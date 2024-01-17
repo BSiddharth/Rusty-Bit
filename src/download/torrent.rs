@@ -1,5 +1,4 @@
 use anyhow::{Context, Ok};
-use reqwest::blocking::Response;
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
@@ -11,7 +10,6 @@ use sha1::{Digest, Sha1};
 
 use crate::download::tracker::TrackerRequest;
 use crate::download::tracker::{HandShake, TrackerResponse};
-use rand::distributions::{Alphanumeric, DistString};
 use std::io::{Read, Write};
 
 use super::tracker;
@@ -193,10 +191,16 @@ impl Torrent {
                     "pstr: {}",
                     String::from_utf8(decoded.pstr.to_vec()).unwrap()
                 );
-                println!(
-                    "peer_id: {}",
-                    String::from_utf8_lossy(&decoded.peer_id.to_vec())
-                );
+                println!("peer_id: {:x?}", &decoded.peer_id.to_vec());
+                println!("reserved bytes: {:?}", &decoded.reserved);
+
+                let mut len_buf = [0 as u8; 4];
+                let _ = stream.read_exact(&mut len_buf);
+                let len_of_data = u32::from_le_bytes(len_buf);
+                let mut type_buf = [0 as u8];
+                let _ = stream.read_exact(&mut type_buf);
+                let type_of_data = u8::from_be_bytes(type_buf);
+                println!("Len of data is {len_of_data} and the type is {type_of_data}");
             }
             tracker::TrackerResponseType::Failure { failure_reason } => {
                 println!("tracker could not be connected due to: {failure_reason}");
