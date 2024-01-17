@@ -10,6 +10,12 @@ use std::{fmt, usize};
 use sha1::{Digest, Sha1};
 
 use crate::download::tracker::TrackerRequest;
+use crate::download::tracker::{HandShake, TrackerResponse};
+use rand::distributions::{Alphanumeric, DistString};
+use std::io::{Read, Write};
+
+use super::tracker;
+
 // using Vec beacuse we have no idea how large can hash string be
 #[derive(Debug)]
 struct Hashes(Vec<[u8; 20]>);
@@ -125,7 +131,7 @@ impl Torrent {
         }
     }
 
-    pub fn start_download(&mut self, peer_id: String) -> anyhow::Result<Response> {
+    pub fn start_download(&mut self, peer_id: String) -> anyhow::Result<()> {
         // cannot do this because query uses urlencoded which cannot Serialize [u8] !!
         // let client = reqwest::blocking::Client::new();
         // let response = client.get(base_url).query(self).send();
@@ -135,10 +141,67 @@ impl Torrent {
             FileType::MultiFile { ref files } => files.iter().map(|file| file.length).sum(),
         };
         let info_hash = self.calc_hash().context("could not calculate hash")?;
-        let tracker_request = TrackerRequest::new(info_hash, torrent_data_len, peer_id);
+        let tracker_request = TrackerRequest::new(info_hash, torrent_data_len, &peer_id);
         let url = tracker_request.url(&self.announce);
         let response = reqwest::blocking::get(url)?;
         // println!("{:?}", response.text());
-        Ok(response)
+        // println!("response: {:?}", response.text());
+        let tracker_reponse: TrackerResponse = serde_bencode::from_bytes(
+            // r"d8:completei3e10:incompletei3e8:intervali60e12:min intervali60e5:peers18:�>RY�\u{e}��!M�\u{b}�>U\u{14}�!e"
+            // .as_bytes(),
+            &response
+                .bytes()
+                .context("could not convert response to bytes")?,
+        )
+        .context("could not convert response bytes to TrackerResponse")?;
+
+        match tracker_reponse.tracker_response_type {
+            tracker::TrackerResponseType::Success {
+                complete: _,
+                incomplete: _,
+                interval: _,
+                peers,
+                tracker_id: _,
+            } => {
+                println!("Connected to the tracker");
+
+                let peer_list: Vec<String> = peers
+                    .0
+                    .iter()
+                    .map(|peer_info| {
+                        format!("{}:{}", peer_info.ip_addr, peer_info.port.to_string())
+                    })
+                    .collect();
+                println!("All the available peers are: {peer_list:?}");
+                println!("Connecting to the first peer");
+
+                let handshake = HandShake::new(
+                    self.info_hash.unwrap(),
+                    peer_id.as_bytes().try_into().unwrap(),
+                );
+                let encoded = bincode::serialize(&handshake).unwrap();
+                let mut stream =
+                    std::net::TcpStream::connect(&peer_list[0]).context("Connecting with peer")?;
+                stream.write_all(&encoded)?;
+                let mut response = [0 as u8; 68];
+                stream.read_exact(&mut response)?;
+
+                let decoded: HandShake = bincode::deserialize(&response)?;
+
+                println!("pstrlen: {}", decoded.pstrlen);
+                println!(
+                    "pstr: {}",
+                    String::from_utf8(decoded.pstr.to_vec()).unwrap()
+                );
+                println!(
+                    "peer_id: {}",
+                    String::from_utf8_lossy(&decoded.peer_id.to_vec())
+                );
+            }
+            tracker::TrackerResponseType::Failure { failure_reason } => {
+                println!("tracker could not be connected due to: {failure_reason}");
+            }
+        }
+        Ok(())
     }
 }

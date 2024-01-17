@@ -1,6 +1,5 @@
 use std::fmt;
 
-use rand::distributions::{Alphanumeric, DistString};
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize,
@@ -20,7 +19,7 @@ pub enum Event {
     COMPLETED,
 }
 
-pub struct TrackerRequest {
+pub struct TrackerRequest<'a> {
     // urlencoded 20-byte SHA1 hash of the value of the info key from the Metainfo file.
     // Note that the value will be a bencoded dictionary, given the definition of the info key above.
     pub info_hash: [u8; 20],
@@ -31,7 +30,7 @@ pub struct TrackerRequest {
     // However, one may rightly presume that it must at least be unique for your local machine,
     // thus should probably incorporate things like process ID and perhaps a timestamp recorded at startup.
     // See peer_id below for common client encodings of this field.
-    pub peer_id: String,
+    pub peer_id: &'a str,
 
     // The port number that the client is listening on. Ports reserved for BitTorrent are typically 6881-6889.
     // Clients may choose to give up if it cannot establish a port within this range.
@@ -66,8 +65,8 @@ pub struct TrackerRequest {
 }
 
 // The tracker responds with "text/plain" document consisting of a bencoded dictionary
-impl TrackerRequest {
-    pub fn new(info_hash: [u8; 20], total_size: usize, peer_id: String) -> Self {
+impl<'a> TrackerRequest<'a> {
+    pub fn new(info_hash: [u8; 20], total_size: usize, peer_id: &'a str) -> Self {
         TrackerRequest {
             info_hash,
             peer_id,
@@ -88,7 +87,7 @@ impl TrackerRequest {
         url.push_str(&url_encoded_info_hash);
         url.push('&');
         url.push_str("peer_id=");
-        url.push_str(&self.peer_id);
+        url.push_str(self.peer_id);
         url.push('&');
         url.push_str("port=");
         url.push_str(&self.port.to_string());
