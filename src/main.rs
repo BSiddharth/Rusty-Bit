@@ -1,7 +1,8 @@
 use rusty_bit::{download::download_using_file, helper};
 use std::io::{self, Write};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     println!(
         r"
 ______          _          ______ _ _   
@@ -28,7 +29,7 @@ ______          _          ______ _ _
         let chosen_option = helper::read_string();
         match chosen_option.as_str() {
             "1" => {
-                let result = download_using_file();
+                let result = download_using_file().await;
                 if result.is_ok() {
                     break;
                 } else {

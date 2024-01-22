@@ -1,6 +1,5 @@
 use crate::helper::read_string;
 use anyhow::{bail, Context};
-use rand::distributions::{Alphanumeric, DistString};
 use std::{
     fs,
     io::{self, ErrorKind, Write},
@@ -42,7 +41,7 @@ fn decode_bencoded_file(file_path: String) -> anyhow::Result<Torrent> {
 /*
  * This function downloads torrent resource using the .torrent file
 */
-pub fn download_using_file() -> anyhow::Result<()> {
+pub async fn download_using_file() -> anyhow::Result<()> {
     print!("You chose to download using .torrent file, provide the file path: ");
     io::stdout().flush().expect("Couldn't flush stdout");
 
@@ -54,9 +53,9 @@ pub fn download_using_file() -> anyhow::Result<()> {
     let announce = &decoded_file_data.announce;
     println!("Starting download now, trying to contact {}", announce);
 
-    let peer_id = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
     decoded_file_data
-        .start_download(peer_id.clone())
+        .start_download()
+        .await
         .context("Could not start download")?;
     Ok(())
 }

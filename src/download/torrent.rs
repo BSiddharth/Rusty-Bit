@@ -5,12 +5,13 @@ use serde::{
 };
 use serde_bencode;
 use std::{fmt, usize};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use rand::distributions::{Alphanumeric, DistString};
 use sha1::{Digest, Sha1};
 
 use crate::download::tracker::TrackerRequest;
 use crate::download::tracker::{HandShake, TrackerResponse};
-use std::io::{Read, Write};
 
 use super::tracker;
 
@@ -129,19 +130,19 @@ impl Torrent {
         }
     }
 
-    pub fn start_download(&mut self, peer_id: String) -> anyhow::Result<()> {
+    pub async fn start_download(&mut self) -> anyhow::Result<()> {
         // cannot do this because query uses urlencoded which cannot Serialize [u8] !!
         // let client = reqwest::blocking::Client::new();
         // let response = client.get(base_url).query(self).send();
-
         let torrent_data_len: usize = match self.info.file_type {
             FileType::SingleFile { length } => length,
             FileType::MultiFile { ref files } => files.iter().map(|file| file.length).sum(),
         };
         let info_hash = self.calc_hash().context("could not calculate hash")?;
+        let peer_id = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
         let tracker_request = TrackerRequest::new(info_hash, torrent_data_len, &peer_id);
         let url = tracker_request.url(&self.announce);
-        let response = reqwest::blocking::get(url)?;
+        let response = reqwest::Client::new().get(url).send().await?;
         // println!("{:?}", response.text());
         // println!("response: {:?}", response.text());
         let tracker_reponse: TrackerResponse = serde_bencode::from_bytes(
@@ -149,6 +150,7 @@ impl Torrent {
             // .as_bytes(),
             &response
                 .bytes()
+                .await
                 .context("could not convert response to bytes")?,
         )
         .context("could not convert response bytes to TrackerResponse")?;
@@ -178,11 +180,13 @@ impl Torrent {
                     peer_id.as_bytes().try_into().unwrap(),
                 );
                 let encoded = bincode::serialize(&handshake).unwrap();
-                let mut stream =
-                    std::net::TcpStream::connect(&peer_list[0]).context("Connecting with peer")?;
-                stream.write_all(&encoded)?;
+                let mut stream = tokio::net::TcpStream::connect(&peer_list[0])
+                    .await
+                    .context("Connecting with peer")?;
+                // .context("Connecting with peer")?;
+                stream.write_all(&encoded).await?;
                 let mut response = [0 as u8; 68];
-                stream.read_exact(&mut response)?;
+                stream.read_exact(&mut response).await?;
 
                 let decoded: HandShake = bincode::deserialize(&response)?;
 
@@ -194,13 +198,13 @@ impl Torrent {
                 println!("peer_id: {:x?}", &decoded.peer_id.to_vec());
                 println!("reserved bytes: {:?}", &decoded.reserved);
 
-                let mut len_buf = [0 as u8; 4];
-                let _ = stream.read_exact(&mut len_buf);
-                let len_of_data = u32::from_le_bytes(len_buf);
-                let mut type_buf = [0 as u8];
-                let _ = stream.read_exact(&mut type_buf);
-                let type_of_data = u8::from_be_bytes(type_buf);
-                println!("Len of data is {len_of_data} and the type is {type_of_data}");
+                // let mut len_buf = [0 as u8; 4];
+                // let _ = stream.read_exact(&mut len_buf);
+                // let len_of_data = u32::from_le_bytes(len_buf);
+                // let mut type_buf = [0 as u8];
+                // let _ = stream.read_exact(&mut type_buf);
+                // let type_of_data = u8::from_be_bytes(type_buf);
+                // println!("Len of data is {len_of_data} and the type is {type_of_data}");
             }
             tracker::TrackerResponseType::Failure { failure_reason } => {
                 println!("tracker could not be connected due to: {failure_reason}");
