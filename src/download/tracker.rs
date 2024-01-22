@@ -245,7 +245,8 @@ impl HandShake {
     }
 }
 
-enum Msgtype {
+#[derive(Debug)]
+pub enum PeerMsgType {
     // The keep-alive message is a message with zero bytes, specified with the length prefix set to zero.
     // There is no message ID and no payload.
     // Peers may close a connection if they receive no messages (keep-alive or any other message) for
@@ -316,4 +317,23 @@ enum Msgtype {
     // It is typically used during "End Game".
     // <len=0013><id=8><index><begin><length>
     Cancel,
+}
+
+impl TryFrom<u8> for PeerMsgType {
+    type Error = &'static str;
+    fn try_from(value: u8) -> Result<Self, &'static str> {
+        match value {
+            0 => Ok(PeerMsgType::KeepAlive),
+            1 => Ok(PeerMsgType::Choke),
+            2 => Ok(PeerMsgType::Unchoke),
+            3 => Ok(PeerMsgType::Interested),
+            4 => Ok(PeerMsgType::NotInterested),
+            5 => Ok(PeerMsgType::Have),
+            6 => Ok(PeerMsgType::Bitfield),
+            7 => Ok(PeerMsgType::Request),
+            8 => Ok(PeerMsgType::Piece),
+            9 => Ok(PeerMsgType::Cancel),
+            _ => Err("Conversion of u8 to PeerMsgType not possible"),
+        }
+    }
 }
