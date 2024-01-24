@@ -1,4 +1,6 @@
-use anyhow::{bail, Context};
+use super::tracker;
+use anyhow::Context;
+use futures_util::{SinkExt, StreamExt};
 use serde::{
     de::{self, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
@@ -10,13 +12,15 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use rand::distributions::{Alphanumeric, DistString};
 use sha1::{Digest, Sha1};
 
-use crate::download::tracker::TrackerRequest;
-use crate::download::tracker::{HandShake, TrackerResponse};
+use crate::download::{
+    peers::PeerFrameCodec,
+    tracker::{HandShake, TrackerResponse},
+};
+use crate::download::{
+    peers::{PeerMsgTag, PeerMsgType},
+    tracker::TrackerRequest,
+};
 
-use super::tracker::{self, PeerMsgType};
-use futures_util::StreamExt;
-use tokio_util::bytes::{Buf, BytesMut};
-use tokio_util::codec::Decoder;
 // using Vec beacuse we have no idea how large can hash string be
 #[derive(Debug)]
 struct Hashes(Vec<[u8; 20]>);
@@ -187,20 +191,30 @@ impl Torrent {
                     .context("Connecting with peer")?;
                 // .context("Connecting with peer")?;
                 stream.write_all(&encoded).await?;
-                let mut response = [0 as u8; 68];
+                let mut response = [0 as u8; 68]; // TODO: Remove the hardcoded value
                 stream.read_exact(&mut response).await?;
 
-                let decoded: HandShake = bincode::deserialize(&response)?;
+                let response_handshake: HandShake = bincode::deserialize(&response)?;
 
-                println!("pstrlen: {}", decoded.pstrlen);
+                println!("pstrlen: {}", response_handshake.pstrlen);
                 println!(
                     "pstr: {}",
-                    String::from_utf8(decoded.pstr.to_vec()).unwrap()
+                    String::from_utf8(response_handshake.pstr.to_vec()).unwrap()
                 );
-                println!("peer_id: {:x?}", &decoded.peer_id.to_vec());
-                println!("reserved bytes: {:?}", &decoded.reserved);
+                println!("peer_id: {:x?}", &response_handshake.peer_id.to_vec());
+                println!("reserved bytes: {:?}", &response_handshake.reserved);
 
                 let mut framed = tokio_util::codec::Framed::new(stream, PeerFrameCodec);
+
+                let new_frame = framed.next().await.unwrap().unwrap();
+                println!("next frame type is {new_frame:?}",);
+
+                println!("Sending interested frame");
+                let _ = framed
+                    .send(PeerMsgType::new(PeerMsgTag::Interested, Vec::new()))
+                    .await
+                    .unwrap();
+
                 let new_frame = framed.next().await.unwrap().unwrap();
                 println!("next frame type is {new_frame:?}",);
             }
@@ -209,88 +223,5 @@ impl Torrent {
             }
         }
         Ok(())
-    }
-}
-
-struct PeerFrameCodec;
-
-const MAX: usize = 1024 * 16; // 16KB for now is the max len that is allowed in the protocol
-
-impl Decoder for PeerFrameCodec {
-    type Item = PeerMsgType;
-    type Error = anyhow::Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> anyhow::Result<Option<Self::Item>> {
-        if src.len() < 4 {
-            // Not enough data to read length marker.
-            return Ok(None);
-        }
-
-        // Read length marker.
-        let mut length_bytes = [0u8; 4];
-        length_bytes.copy_from_slice(&src[..4]);
-        let length = u32::from_be_bytes(length_bytes) as usize;
-
-        // Check that the length is not too large to avoid a denial of
-        // service attack where the server runs out of memory.
-        if length > MAX {
-            bail!("Frame of length {} is too large.", length);
-        }
-
-        if src.len() < 4 + length {
-            // The full string has not yet arrived.
-
-            // We reserve more space in the buffer. This is not strictly
-            // necessary, but is a good idea performance-wise.
-            src.reserve(4 + length - src.len());
-
-            // We inform the Framed that we need more bytes to form the next
-            // frame.
-            return Ok(None);
-        }
-
-        if length == 0 {
-            src.advance(4 + length);
-            return Ok(Some(PeerMsgType::KeepAlive));
-        }
-
-        let msg_type: u8 = src[4];
-
-        if length == 1 {
-            src.advance(4 + length);
-            match PeerMsgType::try_from(msg_type).unwrap() {
-                PeerMsgType::KeepAlive => bail!("Msg Type not possible"),
-                PeerMsgType::Choke => return Ok(Some(PeerMsgType::Choke)),
-                PeerMsgType::Unchoke => return Ok(Some(PeerMsgType::Unchoke)),
-                PeerMsgType::Interested => return Ok(Some(PeerMsgType::Interested)),
-                PeerMsgType::NotInterested => return Ok(Some(PeerMsgType::NotInterested)),
-                PeerMsgType::Have => bail!("Msg Type not possible"),
-                PeerMsgType::Bitfield => bail!("Msg Type not possible"),
-                PeerMsgType::Request => bail!("Msg Type not possible"),
-                PeerMsgType::Piece => bail!("Msg Type not possible"),
-                PeerMsgType::Cancel => bail!("Msg Type not possible"),
-            }
-        }
-
-        // Use advance to modify src such that it no longer contains
-        // this frame.
-        if length > 1 {
-            // let data = src[5..5 + length].to_vec();
-            src.advance(4 + length);
-            match PeerMsgType::try_from(msg_type).unwrap() {
-                PeerMsgType::KeepAlive => bail!("Msg Type not possible"),
-                PeerMsgType::Choke => bail!("Msg Type not possible"),
-                PeerMsgType::Unchoke => bail!("Msg Type not possible"),
-                PeerMsgType::Interested => bail!("Msg Type not possible"),
-                PeerMsgType::NotInterested => bail!("Msg Type not possible"),
-                PeerMsgType::Have => return Ok(Some(PeerMsgType::Have)),
-                PeerMsgType::Bitfield => return Ok(Some(PeerMsgType::Bitfield)),
-                PeerMsgType::Request => return Ok(Some(PeerMsgType::Request)),
-                PeerMsgType::Piece => return Ok(Some(PeerMsgType::Piece)),
-                PeerMsgType::Cancel => return Ok(Some(PeerMsgType::Cancel)),
-            }
-        } else {
-            bail!("Not possible");
-        }
     }
 }

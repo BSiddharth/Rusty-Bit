@@ -4,6 +4,7 @@ use std::{
     fs,
     io::{self, ErrorKind, Write},
 };
+mod peers;
 mod torrent;
 mod tracker;
 use serde_bencode;
