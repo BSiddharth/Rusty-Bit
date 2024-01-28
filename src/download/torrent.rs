@@ -13,7 +13,7 @@ use rand::distributions::{Alphanumeric, DistString};
 use sha1::{Digest, Sha1};
 
 use crate::download::{
-    peers::PeerFrameCodec,
+    peers::{PeerFrameCodec, PeerRequestMsgType},
     tracker::{HandShake, TrackerResponse},
 };
 use crate::download::{
@@ -137,6 +137,8 @@ impl Torrent {
     }
 
     pub async fn start_download(&mut self) -> anyhow::Result<()> {
+        let total_pieces_to_download = self.info.pieces.0.len();
+        // let total_pieces_to_download = (self.info.pieces.0.len() as f64 / 20.0).ceil();
         // cannot do this because query uses urlencoded which cannot Serialize [u8] !!
         // let client = reqwest::blocking::Client::new();
         // let response = client.get(base_url).query(self).send();
@@ -144,22 +146,28 @@ impl Torrent {
             FileType::SingleFile { length } => length,
             FileType::MultiFile { ref files } => files.iter().map(|file| file.length).sum(),
         };
+        println!(
+            "Total bytes to download: {}\nTotal pieces to download: {}",
+            torrent_data_len, total_pieces_to_download
+        );
         let info_hash = self.calc_hash().context("could not calculate hash")?;
         let peer_id = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
         let tracker_request = TrackerRequest::new(info_hash, torrent_data_len, &peer_id);
         let url = tracker_request.url(&self.announce);
-        let response = reqwest::Client::new().get(url).send().await?;
+        let response = reqwest::Client::new()
+            .get(url)
+            .send()
+            .await
+            .context("Request to tracker failed")?;
         // println!("{:?}", response.text());
         // println!("response: {:?}", response.text());
         let tracker_reponse: TrackerResponse = serde_bencode::from_bytes(
-            // r"d8:completei3e10:incompletei3e8:intervali60e12:min intervali60e5:peers18:�>RY�\u{e}��!M�\u{b}�>U\u{14}�!e"
-            // .as_bytes(),
             &response
                 .bytes()
                 .await
-                .context("could not convert response to bytes")?,
+                .context("could not convert tracker response to bytes")?,
         )
-        .context("could not convert response bytes to TrackerResponse")?;
+        .context("could not convert tracker response bytes to TrackerResponse")?;
 
         match tracker_reponse.tracker_response_type {
             tracker::TrackerResponseType::Success {
@@ -216,7 +224,42 @@ impl Torrent {
                     .unwrap();
 
                 let new_frame = framed.next().await.unwrap().unwrap();
-                println!("next frame type is {new_frame:?}",);
+                println!("next frame type is {new_frame:?}");
+
+                let max_request_block_size = 2_usize.pow(13);
+                for piece_index in 0..total_pieces_to_download as usize {
+                    let mut data_left_to_download_in_the_piece = self.info.piece_length;
+                    let mut block_count: u32 = 0;
+                    while data_left_to_download_in_the_piece != 0 {
+                        println!(
+                            "downloading piece {} and block {}",
+                            piece_index, block_count
+                        );
+                        let this_block_data_len = std::cmp::min(
+                            data_left_to_download_in_the_piece,
+                            max_request_block_size,
+                        );
+
+                        let peer_msg_req_bytes = PeerRequestMsgType::new(
+                            piece_index as u32,
+                            block_count,
+                            this_block_data_len as u32,
+                        )
+                        .to_bytes();
+
+                        let _ = framed
+                            .send(PeerMsgType::new(
+                                PeerMsgTag::Request,
+                                peer_msg_req_bytes.to_vec(),
+                            ))
+                            .await
+                            .unwrap();
+                        let new_frame = framed.next().await.unwrap().unwrap();
+                        println!("next frame type is {new_frame:?}",);
+                        data_left_to_download_in_the_piece -= this_block_data_len;
+                        block_count += 1;
+                    }
+                }
             }
             tracker::TrackerResponseType::Failure { failure_reason } => {
                 println!("tracker could not be connected due to: {failure_reason}");
