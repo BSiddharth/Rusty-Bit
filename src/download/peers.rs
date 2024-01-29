@@ -6,7 +6,7 @@ use tokio_util::{
 };
 
 #[repr(u8)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum PeerMsgTag {
     // The keep-alive message is a message with zero bytes, specified with the length prefix set to zero.
     // There is no message ID and no payload.
@@ -132,6 +132,14 @@ impl PeerMsgType {
             data,
         };
     }
+
+    pub fn tag(&self) -> &PeerMsgTag {
+        &self.tag
+    }
+
+    pub fn data(self) -> Vec<u8> {
+        self.data
+    }
 }
 
 pub struct PeerFrameCodec;
@@ -170,7 +178,6 @@ impl Decoder for PeerFrameCodec {
             // frame.
             return Ok(None);
         }
-        println!("{}", length);
 
         if length == 0 {
             src.advance(4);
@@ -287,5 +294,29 @@ impl PeerRequestMsgType {
         bytes.extend(self.begin.to_be_bytes());
         bytes.extend(self.length.to_be_bytes());
         bytes.try_into().unwrap()
+    }
+}
+
+pub struct PeerPieceMsgType {
+    index: u32,
+    begin: u32,
+    block: Vec<u8>,
+}
+
+impl PeerPieceMsgType {
+    pub fn from_bytes(data: Vec<u8>) -> PeerPieceMsgType {
+        assert!(data.len() >= 8);
+        let index = u32::from_be_bytes(data[0..4].try_into().unwrap());
+        let begin = u32::from_be_bytes(data[4..8].try_into().unwrap());
+        let block = data[8..].to_vec();
+        PeerPieceMsgType {
+            index,
+            begin,
+            block,
+        }
+    }
+
+    pub fn block(self) -> Vec<u8> {
+        self.block
     }
 }

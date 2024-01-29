@@ -13,7 +13,7 @@ use rand::distributions::{Alphanumeric, DistString};
 use sha1::{Digest, Sha1};
 
 use crate::download::{
-    peers::{PeerFrameCodec, PeerRequestMsgType},
+    peers::{PeerFrameCodec, PeerPieceMsgType, PeerRequestMsgType},
     tracker::{HandShake, TrackerResponse},
 };
 use crate::download::{
@@ -21,6 +21,8 @@ use crate::download::{
     tracker::TrackerRequest,
 };
 
+use std::fs::File as StdFile;
+use std::io::Write;
 // using Vec beacuse we have no idea how large can hash string be
 #[derive(Debug)]
 struct Hashes(Vec<[u8; 20]>);
@@ -142,7 +144,7 @@ impl Torrent {
         // cannot do this because query uses urlencoded which cannot Serialize [u8] !!
         // let client = reqwest::blocking::Client::new();
         // let response = client.get(base_url).query(self).send();
-        let torrent_data_len: usize = match self.info.file_type {
+        let mut torrent_data_len: usize = match self.info.file_type {
             FileType::SingleFile { length } => length,
             FileType::MultiFile { ref files } => files.iter().map(|file| file.length).sum(),
         };
@@ -226,23 +228,32 @@ impl Torrent {
                 let new_frame = framed.next().await.unwrap().unwrap();
                 println!("next frame type is {new_frame:?}");
 
+                let mut final_bytes: Vec<u8> = Vec::new();
+                final_bytes.reserve_exact(torrent_data_len);
+
                 let max_request_block_size = 2_usize.pow(13);
                 for piece_index in 0..total_pieces_to_download as usize {
-                    let mut data_left_to_download_in_the_piece = self.info.piece_length;
-                    let mut block_count: u32 = 0;
-                    while data_left_to_download_in_the_piece != 0 {
-                        println!(
-                            "downloading piece {} and block {}",
-                            piece_index, block_count
-                        );
+                    let piece_to_download_len =
+                        std::cmp::min(torrent_data_len, self.info.piece_length);
+                    println!("dltd {piece_to_download_len}");
+
+                    let mut piece_data: Vec<u8> = Vec::new();
+                    piece_data.reserve_exact(piece_to_download_len);
+
+                    let mut piece_downloaded_len: usize = 0;
+
+                    while piece_to_download_len != piece_downloaded_len {
+                        println!("downloading piece {}", piece_index);
+
                         let this_block_data_len = std::cmp::min(
-                            data_left_to_download_in_the_piece,
+                            piece_to_download_len - piece_downloaded_len,
                             max_request_block_size,
                         );
+                        println!("tbdl {this_block_data_len}");
 
                         let peer_msg_req_bytes = PeerRequestMsgType::new(
                             piece_index as u32,
-                            block_count,
+                            piece_downloaded_len as u32,
                             this_block_data_len as u32,
                         )
                         .to_bytes();
@@ -255,11 +266,34 @@ impl Torrent {
                             .await
                             .unwrap();
                         let new_frame = framed.next().await.unwrap().unwrap();
-                        println!("next frame type is {new_frame:?}",);
-                        data_left_to_download_in_the_piece -= this_block_data_len;
-                        block_count += 1;
+                        assert_eq!(&PeerMsgTag::Piece, new_frame.tag());
+                        piece_data
+                            .append(&mut PeerPieceMsgType::from_bytes(new_frame.data()).block());
+                        piece_downloaded_len += this_block_data_len;
                     }
+                    assert_eq!(piece_to_download_len, piece_data.len());
+                    let mut piece_hasher = Sha1::new();
+                    piece_hasher.update(piece_data.clone());
+                    let piece_hash = piece_hasher.finalize();
+
+                    assert_eq!(
+                        self.info.pieces.0[piece_index],
+                        Into::<[u8; 20]>::into(piece_hash)
+                    );
+                    torrent_data_len -= piece_to_download_len;
+                    final_bytes.append(&mut piece_data);
                 }
+                // Create a file
+                let mut data_file = StdFile::create(format!(
+                    "C:/Users/SIDDHARTH/Desktop/torrent download/{}",
+                    self.info.name.clone()
+                ))
+                .expect("creation failed");
+
+                // Write contents to the file
+                data_file.write(&final_bytes).expect("write failed");
+
+                println!("Downloaded file {}", self.info.name.clone());
             }
             tracker::TrackerResponseType::Failure { failure_reason } => {
                 println!("tracker could not be connected due to: {failure_reason}");
