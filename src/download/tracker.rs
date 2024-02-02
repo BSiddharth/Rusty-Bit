@@ -79,6 +79,12 @@ impl<'a> TrackerRequest<'a> {
         }
     }
     pub fn url(&self, base_url: &String) -> String {
+        // Had to do this because query uses urlencoded which cannot Serialize [u8] !!
+        // So something like this was not possible
+        // let client = reqwest::blocking::Client::new();
+        // let response = client.get(base_url).query(self).send();
+        // Thus had to make url manually
+
         let url_encoded_info_hash = urlencoding::encode_binary(&self.info_hash);
         let mut url = String::new();
         url.push_str(base_url);

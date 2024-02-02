@@ -23,8 +23,9 @@ use crate::download::{
 
 use std::fs::File as StdFile;
 use std::io::Write;
-// using Vec beacuse we have no idea how large can hash string be
+
 #[derive(Debug)]
+// using Vec beacuse we have no idea how large can hash string be
 struct Hashes(Vec<[u8; 20]>);
 struct HashesVisitor;
 
@@ -116,60 +117,59 @@ pub struct Torrent {
 
     // The announce URL of the tracker (string)
     pub announce: String,
-
-    #[serde(skip)]
-    pub info_hash: Option<[u8; 20]>,
 }
 
 impl Torrent {
     pub fn calc_hash(&mut self) -> anyhow::Result<[u8; 20]> {
-        match self.info_hash {
-            Some(info_hash) => Ok(info_hash),
-            None => {
-                let mut hasher = Sha1::new();
-                hasher.update(
-                    serde_bencode::to_bytes::<Info>(&self.info)
-                        .context("Info hash could not calculated")?,
-                );
-                let info_hash = hasher.finalize().into();
-                self.info_hash = Some(info_hash);
-                Ok(info_hash)
-            }
-        }
+        let mut hasher = Sha1::new();
+        hasher.update(
+            serde_bencode::to_bytes::<Info>(&self.info)
+                .context("Metainfo file's Info conversion to bytes")?,
+        );
+        let info_hash = hasher.finalize().into();
+        Ok(info_hash)
     }
 
     pub async fn start_download(&mut self) -> anyhow::Result<()> {
         let total_pieces_to_download = self.info.pieces.0.len();
-        // let total_pieces_to_download = (self.info.pieces.0.len() as f64 / 20.0).ceil();
-        // cannot do this because query uses urlencoded which cannot Serialize [u8] !!
-        // let client = reqwest::blocking::Client::new();
-        // let response = client.get(base_url).query(self).send();
+
         let mut torrent_data_len: usize = match self.info.file_type {
             FileType::SingleFile { length } => length,
             FileType::MultiFile { ref files } => files.iter().map(|file| file.length).sum(),
         };
+
         println!(
             "Total bytes to download: {}\nTotal pieces to download: {}",
             torrent_data_len, total_pieces_to_download
         );
-        let info_hash = self.calc_hash().context("could not calculate hash")?;
+
+        let info_hash = self.calc_hash().context("Calculate metainfo hash")?;
+
+        let announce = &self.announce;
+        println!(
+            "Starting download now, trying to contact tracker at {}",
+            announce
+        );
+
         let peer_id = Alphanumeric.sample_string(&mut rand::thread_rng(), 20);
         let tracker_request = TrackerRequest::new(info_hash, torrent_data_len, &peer_id);
-        let url = tracker_request.url(&self.announce);
+        let url = tracker_request.url(announce);
         let response = reqwest::Client::new()
             .get(url)
             .send()
             .await
-            .context("Request to tracker failed")?;
-        // println!("{:?}", response.text());
-        // println!("response: {:?}", response.text());
-        let tracker_reponse: TrackerResponse = serde_bencode::from_bytes(
-            &response
-                .bytes()
-                .await
-                .context("could not convert tracker response to bytes")?,
-        )
-        .context("could not convert tracker response bytes to TrackerResponse")?;
+            .with_context(|| format!("Requesting tracker {}", announce))?;
+
+        let tracker_reponse: TrackerResponse =
+            serde_bencode::from_bytes(&response.bytes().await.with_context(|| {
+                format!("Converting tracker's ({}) response to bytes", announce)
+            })?)
+            .with_context(|| {
+                format!(
+                    "Converting tracker's ({}) response bytes to TrackerResponse",
+                    announce
+                )
+            })?;
 
         match tracker_reponse.tracker_response_type {
             tracker::TrackerResponseType::Success {
@@ -179,7 +179,7 @@ impl Torrent {
                 peers,
                 tracker_id: _,
             } => {
-                println!("Connected to the tracker");
+                println!("Connected to the tracker {announce}");
 
                 let peer_list: Vec<String> = peers
                     .0
@@ -191,10 +191,7 @@ impl Torrent {
                 println!("All the available peers are: {peer_list:?}");
                 println!("Connecting to the first peer");
 
-                let handshake = HandShake::new(
-                    self.info_hash.unwrap(),
-                    peer_id.as_bytes().try_into().unwrap(),
-                );
+                let handshake = HandShake::new(info_hash, peer_id.as_bytes().try_into().unwrap());
                 let encoded = bincode::serialize(&handshake).unwrap();
                 let mut stream = tokio::net::TcpStream::connect(&peer_list[0])
                     .await
@@ -296,7 +293,7 @@ impl Torrent {
                 println!("Downloaded file {}", self.info.name.clone());
             }
             tracker::TrackerResponseType::Failure { failure_reason } => {
-                println!("tracker could not be connected due to: {failure_reason}");
+                println!("Tracker {announce} could not be connected due to: {failure_reason}");
             }
         }
         Ok(())

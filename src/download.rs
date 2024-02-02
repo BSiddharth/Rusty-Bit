@@ -48,13 +48,10 @@ pub async fn download_using_file() -> anyhow::Result<()> {
 
     let file_path = read_string();
     println!();
-    let mut decoded_file_data = decode_bencoded_file(file_path)?;
+    let mut decoded_metainfo_file = decode_bencoded_file(file_path)?;
     // Console output is handled by the decode_bencoded_file function so no need to take any action in case of faiure.
 
-    let announce = &decoded_file_data.announce;
-    println!("Starting download now, trying to contact {}", announce);
-
-    decoded_file_data
+    decoded_metainfo_file
         .start_download()
         .await
         .context("Could not start download")?;

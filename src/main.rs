@@ -29,12 +29,14 @@ ______          _          ______ _ _
         let chosen_option = helper::read_string();
         match chosen_option.as_str() {
             "1" => {
-                let result = download_using_file().await;
-                if result.is_ok() {
-                    break;
+                let download_result = download_using_file().await;
+                if download_result.is_ok() {
+                    println!("Download completed, exiting...");
+                    println!("See you later");
                 } else {
-                    println!("Download failed, reason: {:?}", result.err());
+                    println!("Download failed, reason: {:?}", download_result.err());
                 }
+                break;
             }
             "2" => {
                 println!("You chose to download using magnet link");
