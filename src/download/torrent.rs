@@ -6,7 +6,6 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 use serde_bencode;
-use std::{fmt, usize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use rand::distributions::{Alphanumeric, DistString};
@@ -21,12 +20,20 @@ use crate::download::{
     tracker::TrackerRequest,
 };
 
-use std::fs::File as StdFile;
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::{collections::HashSet, path::Path, usize};
+use std::{fmt, fs::File};
+
+fn calc_sha1_hash(piece_data: Vec<u8>) -> [u8; 20] {
+    let mut piece_hasher = Sha1::new();
+    piece_hasher.update(piece_data);
+    let piece_hash = piece_hasher.finalize();
+    Into::<[u8; 20]>::into(piece_hash)
+}
 
 #[derive(Debug)]
-// using Vec beacuse we have no idea how large can hash string be
-struct Hashes(Vec<[u8; 20]>);
+// using Vec beacuse we have no idea how large hash string can be
+pub struct Hashes(Vec<[u8; 20]>);
 struct HashesVisitor;
 
 impl<'de> Visitor<'de> for HashesVisitor {
@@ -72,7 +79,7 @@ impl Serialize for Hashes {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct File {
+pub struct TorrentFile {
     pub length: usize,
     path: Vec<String>,
 }
@@ -84,7 +91,7 @@ pub struct File {
 #[serde(untagged)]
 pub enum FileType {
     SingleFile { length: usize },
-    MultiFile { files: Vec<File> },
+    MultiFile { files: Vec<TorrentFile> },
 }
 
 // Dictionary that describes the file(s) of the torrent.
@@ -130,8 +137,68 @@ impl Torrent {
         Ok(info_hash)
     }
 
+    fn pieces_to_be_downloaded(
+        &self,
+        directory_path: &str,
+        total_pieces_to_download: usize,
+    ) -> anyhow::Result<HashSet<usize>> {
+        let mut to_be_downloaded_pieces: HashSet<usize> = HashSet::new();
+        let piece_length = self.info.piece_length;
+        match &self.info.file_type {
+            FileType::SingleFile { length } => {
+                let file_name = &self.info.name;
+                let path = Path::new(directory_path).join(file_name);
+
+                if path.exists() {
+                    let mut current_piece_being_examined = 0;
+                    let mut data_examined = 0;
+                    let mut file_handler =
+                        File::open(path).context("Opening handle to the single torrent file")?;
+                    while data_examined <= *length {
+                        let data_to_examine_len =
+                            std::cmp::min(piece_length, *length - data_examined);
+                        let mut buf = Vec::with_capacity(data_to_examine_len);
+                        let _ = file_handler.seek(SeekFrom::Start(data_examined as u64));
+                        file_handler
+                            .read_exact(&mut buf)
+                            .expect("Error reading file");
+                        if self.info.pieces.0[current_piece_being_examined] != calc_sha1_hash(buf) {
+                            to_be_downloaded_pieces.insert(current_piece_being_examined);
+                        }
+                        data_examined += data_to_examine_len;
+                        current_piece_being_examined += 1;
+                    }
+                } else {
+                    for piece in 0..=total_pieces_to_download {
+                        to_be_downloaded_pieces.insert(piece);
+                    }
+                }
+            }
+            FileType::MultiFile { files } => todo!(),
+        }
+
+        return Ok(to_be_downloaded_pieces);
+    }
+
     pub async fn start_download(&mut self) -> anyhow::Result<()> {
+        // Create a directory if it does not already exist
+        let directory_path = format!(
+            "Downloaded/{}",
+            &self
+                .info
+                .name
+                .split(".")
+                .next()
+                .context("Removing extension from the torrent name")?
+        );
+        std::fs::create_dir_all(&directory_path)
+            .context("Creating directory to store the downloaded content")?;
+
         let total_pieces_to_download = self.info.pieces.0.len();
+
+        // find out the completion status
+        let to_be_downloaded_pieces =
+            self.pieces_to_be_downloaded(&directory_path, total_pieces_to_download)?;
 
         let mut torrent_data_len: usize = match self.info.file_type {
             FileType::SingleFile { length } => length,
@@ -269,19 +336,14 @@ impl Torrent {
                         piece_downloaded_len += this_block_data_len;
                     }
                     assert_eq!(piece_to_download_len, piece_data.len());
-                    let mut piece_hasher = Sha1::new();
-                    piece_hasher.update(piece_data.clone());
-                    let piece_hash = piece_hasher.finalize();
+                    let piece_hash = calc_sha1_hash(piece_data.clone());
 
-                    assert_eq!(
-                        self.info.pieces.0[piece_index],
-                        Into::<[u8; 20]>::into(piece_hash)
-                    );
+                    assert_eq!(self.info.pieces.0[piece_index], piece_hash);
                     torrent_data_len -= piece_to_download_len;
                     final_bytes.append(&mut piece_data);
                 }
                 // Create a file
-                let mut data_file = StdFile::create(format!(
+                let mut data_file = File::create(format!(
                     "C:/Users/SIDDHARTH/Desktop/torrent download/{}",
                     self.info.name.clone()
                 ))

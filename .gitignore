@@ -16,5 +16,7 @@ target/
 # Ignore torrent files
 torrent sample/
 
+# Ignore the downloaded files
+Downloaded/
 # End of https://www.toptal.com/developers/gitignore/api/rust
 
