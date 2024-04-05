@@ -126,11 +126,11 @@ pub struct PeerMsgType {
 
 impl PeerMsgType {
     pub fn new(tag: PeerMsgTag, data: Vec<u8>) -> PeerMsgType {
-        return PeerMsgType {
+        PeerMsgType {
             msg_length: (data.len() + 1) as u32,
             tag,
             data,
-        };
+        }
     }
 
     pub fn tag(&self) -> &PeerMsgTag {
@@ -197,10 +197,10 @@ impl Decoder for PeerFrameCodec {
 
         let data = src[5..4 + length].to_vec();
         src.advance(4 + length);
-        return Ok(Some(PeerMsgType::new(
+        Ok(Some(PeerMsgType::new(
             PeerMsgTag::try_from(msg_type).unwrap(),
             data,
-        )));
+        )))
 
         //     match PeerMsgTag::try_from(msg_type).unwrap() {
         //         PeerMsgTag::KeepAlive => bail!("Msg Type not possible"),

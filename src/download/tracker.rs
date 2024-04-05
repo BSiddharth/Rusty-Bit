@@ -5,18 +5,17 @@ use serde::{
     Deserialize, Deserializer, Serialize,
 };
 
-#[allow(dead_code)]
 pub enum Event {
     //The first request to the tracker must include the event key with this value.
-    STARTED,
+    Started,
 
     //Must be sent to the tracker if the client is shutting down gracefully.
-    STOPPED,
+    Stopped,
 
     // Must be sent to the tracker when the download completes.
     // However, must not be sent if the download was already 100% complete when the client started.
     // Presumably, this is to allow the tracker to increment the "completed downloads" metric based solely on this event.
-    COMPLETED,
+    Completed,
 }
 
 pub struct TrackerRequest<'a> {
@@ -75,10 +74,10 @@ impl<'a> TrackerRequest<'a> {
             downloaded: 0,
             left: total_size,
             compact: 1,
-            event: Event::STARTED,
+            event: Event::Started,
         }
     }
-    pub fn url(&self, base_url: &String) -> String {
+    pub fn url(&self, base_url: &str) -> String {
         // Had to do this because query uses urlencoded which cannot Serialize [u8] !!
         // So something like this was not possible
         // let client = reqwest::blocking::Client::new();
@@ -108,13 +107,12 @@ impl<'a> TrackerRequest<'a> {
         url.push_str(&self.left.to_string());
         url.push('&');
         url.push_str("compact=");
-        url.push_str(&(self.compact as u8).to_string());
+        url.push_str(&self.compact.to_string());
         url
     }
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct Peer {
     pub ip_addr: String,
     pub port: u16,
@@ -138,11 +136,9 @@ impl Peer {
 // So in compact = 1 case peers cannot be a dictionary, it has to be a byte string
 // For example, a client at the IP 10.10.10.5 listening on port 128
 // would be coded as a string containing the following bytes 0A 0A 0A 05 00 80 (10 10 10 5 0 128)
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Peers(pub Vec<Peer>);
 
-#[allow(dead_code)]
 struct PeersVisitor;
 
 impl<'de> Visitor<'de> for PeersVisitor {
@@ -176,7 +172,6 @@ impl<'de> Deserialize<'de> for Peers {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 pub enum TrackerResponseType {
@@ -205,14 +200,12 @@ pub enum TrackerResponseType {
     },
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct TrackerResponse {
     #[serde(flatten)]
     pub tracker_response_type: TrackerResponseType,
 }
 
-#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct HandShake {
     // string length of <pstr>, as a single raw byte

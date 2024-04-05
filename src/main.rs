@@ -1,4 +1,7 @@
-use rusty_bit::{download::download_using_file, helper};
+use rusty_bit::{
+    download::download_using_file,
+    helper::{self, print_single_ln},
+};
 use std::io::{self, Write};
 
 #[tokio::main]
@@ -24,8 +27,7 @@ ______          _          ______ _ _
         2) Download using magnet link\n\
         3) Quit Rusty-Bit\n"
         );
-        print!("Choose your preferred download method or quit the program: ");
-        io::stdout().flush().expect("Couldn't flush stdout");
+        print_single_ln("Choose your preferred download method or quit the program: ");
         let chosen_option = helper::read_string();
         match chosen_option.as_str() {
             "1" => {

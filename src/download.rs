@@ -1,9 +1,6 @@
-use crate::helper::read_string;
+use crate::helper::{print_single_ln, read_string};
 use anyhow::{bail, Context};
-use std::{
-    fs,
-    io::{self, ErrorKind, Write},
-};
+use std::{fs, io::ErrorKind};
 mod peers;
 mod torrent;
 mod tracker;
@@ -14,11 +11,11 @@ use torrent::Torrent;
  * This function is responsible for converting the data in bencoded file into rust datatype.
 */
 fn decode_bencoded_file(file_path: String) -> anyhow::Result<Torrent> {
-    println!("Trying to read file {file_path}");
+    println!("Trying to read file {file_path}\n");
     let file_data = fs::read(&file_path);
     match file_data {
         Ok(file_data_vec) => {
-            println!("Decoding bencoded file {file_path}");
+            println!("Decoding bencoded file {file_path}\n");
             let decoder_result = serde_bencode::from_bytes::<Torrent>(&file_data_vec);
             match decoder_result {
                 Ok(torrent_data) => Ok(torrent_data),
@@ -43,9 +40,7 @@ fn decode_bencoded_file(file_path: String) -> anyhow::Result<Torrent> {
  * This function downloads torrent resource using the .torrent file
 */
 pub async fn download_using_file() -> anyhow::Result<()> {
-    print!("You chose to download using .torrent file, provide the file path: ");
-    io::stdout().flush().expect("Couldn't flush stdout");
-
+    print_single_ln("You chose to download using .torrent file, provide the file path: ");
     let file_path = read_string();
     println!();
     let mut decoded_metainfo_file = decode_bencoded_file(file_path)?;
