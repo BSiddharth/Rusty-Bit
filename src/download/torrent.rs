@@ -21,17 +21,12 @@ use crate::download::{
 };
 
 use std::{
-    clone,
     collections::HashMap,
     fs::OpenOptions,
     io::{Read, Seek, SeekFrom},
     os::windows::prelude::FileExt,
     path::PathBuf,
-    rc::Rc,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
 };
 use std::{fmt, fs::File};
 use std::{path::Path, usize};
@@ -427,27 +422,16 @@ impl Torrent {
                         let _response_handshake: HandShake =
                             bincode::deserialize(&response).unwrap();
 
-                        // println!("pstrlen: {}", response_handshake.pstrlen);
-                        // println!(
-                        //     "pstr: {}",
-                        //     String::from_utf8(response_handshake.pstr.to_vec()).unwrap()
-                        // );
-                        // println!("peer_id: {:x?}", &response_handshake.peer_id.to_vec());
-                        // println!("reserved bytes: {:?}", &response_handshake.reserved);
-
                         let mut framed = tokio_util::codec::Framed::new(stream, PeerFrameCodec);
 
-                        let new_frame = framed.next().await.unwrap().unwrap(); // bitfield msg
-                                                                               // println!("next frame type is {new_frame:?}",);
+                        let _ = framed.next().await.unwrap().unwrap(); // bitfield msg
 
-                        // println!("Sending interested frame");
                         framed
                             .send(PeerMsgType::new(PeerMsgTag::Interested, Vec::new()))
                             .await
                             .unwrap();
 
-                        let new_frame = framed.next().await.unwrap().unwrap();
-                        // println!("next frame type is {new_frame:?}");
+                        let _ = framed.next().await.unwrap().unwrap();
 
                         let max_request_block_size = 2_usize.pow(13);
 
@@ -458,7 +442,6 @@ impl Torrent {
                             }
 
                             let piece_index = piece_index.unwrap();
-                            // println!("Piece index is **** {piece_index}");
 
                             let piece_to_download_len = if piece_index
                                 != total_pieces_to_download - 1
@@ -467,7 +450,6 @@ impl Torrent {
                             } else {
                                 torrent_data_len - (piece_length * (total_pieces_to_download - 1))
                             };
-                            // println!("dltd {piece_to_download_len}");
 
                             let mut piece_data: Vec<u8> = Vec::new();
                             piece_data.reserve_exact(piece_to_download_len);
@@ -475,13 +457,10 @@ impl Torrent {
                             let mut piece_downloaded_len: usize = 0;
 
                             while piece_to_download_len != piece_downloaded_len {
-                                // println!("downloading piece {}", piece_index);
-
                                 let this_block_data_len = std::cmp::min(
                                     piece_to_download_len - piece_downloaded_len,
                                     max_request_block_size,
                                 );
-                                // println!("tbdl {this_block_data_len}");
 
                                 let peer_msg_req_bytes = PeerRequestMsgType::new(
                                     piece_index as u32,
@@ -512,7 +491,6 @@ impl Torrent {
                             let file_paths_details = &piece_mapping[&piece_index];
                             let mut handle_mapping = file_handle_mapping.lock().unwrap();
                             let mut piece_data_pointer = 0;
-                            // println!("{}", std::str::from_utf8(&piece_data).unwrap());
                             for file_path_detail in file_paths_details {
                                 if !handle_mapping.contains_key(&file_path_detail.path) {
                                     handle_mapping.insert(
@@ -535,16 +513,6 @@ impl Torrent {
                         }
                     }));
                 }
-
-                // // Create a file
-                // let mut data_file = File::create(format!(
-                //     "C:/Users/SIDDHARTH/Desktop/torrent download/{}",
-                //     self.info.name.clone()
-                // ))
-                // .expect("creation failed");
-
-                // Write contents to the file
-                // data_file.write(&final_bytes).expect("write failed");
 
                 join_all(handle_vec).await;
                 println!("Downloaded file {}", self.info.name.clone());

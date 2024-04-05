@@ -10,12 +10,12 @@ pub enum Event {
     Started,
 
     //Must be sent to the tracker if the client is shutting down gracefully.
-    Stopped,
+    _Stopped,
 
     // Must be sent to the tracker when the download completes.
     // However, must not be sent if the download was already 100% complete when the client started.
     // Presumably, this is to allow the tracker to increment the "completed downloads" metric based solely on this event.
-    Completed,
+    _Completed,
 }
 
 pub struct TrackerRequest<'a> {

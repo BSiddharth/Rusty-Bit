@@ -288,7 +288,7 @@ impl PeerRequestMsgType {
             length,
         }
     }
-    pub fn to_bytes(self) -> [u8; 12] {
+    pub fn to_bytes(&self) -> [u8; 12] {
         let mut bytes = Vec::with_capacity(12);
         bytes.extend(self.index.to_be_bytes());
         bytes.extend(self.begin.to_be_bytes());
@@ -298,8 +298,8 @@ impl PeerRequestMsgType {
 }
 
 pub struct PeerPieceMsgType {
-    index: u32,
-    begin: u32,
+    _index: u32,
+    _begin: u32,
     block: Vec<u8>,
 }
 
@@ -310,8 +310,8 @@ impl PeerPieceMsgType {
         let begin = u32::from_be_bytes(data[4..8].try_into().unwrap());
         let block = data[8..].to_vec();
         PeerPieceMsgType {
-            index,
-            begin,
+            _index: index,
+            _begin: begin,
             block,
         }
     }
